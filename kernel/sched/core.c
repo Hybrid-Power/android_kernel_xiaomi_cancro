@@ -6125,8 +6125,6 @@ static const struct cpumask *cpu_cpu_mask(int cpu)
 	return cpumask_of_node(cpu_to_node(cpu));
 }
 
-int sched_smt_power_savings = 0, sched_mc_power_savings = 0;
-
 struct sd_data {
 	struct sched_domain **__percpu sd;
 	struct sched_group **__percpu sg;
@@ -6938,6 +6936,8 @@ int __init sched_create_sysfs_power_savings_entries(struct device *dev)
 	return err;
 }
 #endif /* CONFIG_SCHED_MC || CONFIG_SCHED_SMT */
+
+static int num_cpus_frozen;	/* used to mark begin/end of suspend/resume */
 
 /*
  * Update cpusets according to cpu_active mask.  If cpusets are
