@@ -3,6 +3,7 @@
  * Copyright (C) 2005-2008 Google, Inc.
  * Copyright (C) 2013 Paul Reioux
  *
+<<<<<<< HEAD
  * Modified by Jean-Pierre Rasquin <yank555.lu@gmail.com>
  *
  *  v1.1 - make powersuspend not depend on a userspace initiator anymore,
@@ -14,6 +15,8 @@
  *
  *  v1.4 - add a hybrid-kernel mode, accepting both kernel hooks (first wins)
  *
+=======
+>>>>>>> 2acc9c8... powersuspend: new PM kernel driver for Android w/o early_suspend
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
  * may be copied, distributed, and modified under those terms.
@@ -31,9 +34,13 @@
 #include <linux/workqueue.h>
 
 #define MAJOR_VERSION	1
+<<<<<<< HEAD
 #define MINOR_VERSION	5
 
 //#define POWER_SUSPEND_DEBUG // Add debugging prints in dmesg
+=======
+#define MINOR_VERSION	0
+>>>>>>> 2acc9c8... powersuspend: new PM kernel driver for Android w/o early_suspend
 
 struct workqueue_struct *suspend_work_queue;
 
@@ -45,8 +52,12 @@ static DECLARE_WORK(power_suspend_work, power_suspend);
 static DECLARE_WORK(power_resume_work, power_resume);
 static DEFINE_SPINLOCK(state_lock);
 
+<<<<<<< HEAD
 static int state; // Yank555.lu : Current powersave state (screen on / off)
 static int mode;  // Yank555.lu : Current powersave mode  (kernel / userspace / panel / hybrid)
+=======
+static int state;
+>>>>>>> 2acc9c8... powersuspend: new PM kernel driver for Android w/o early_suspend
 
 void register_power_suspend(struct power_suspend *handler)
 {
@@ -76,6 +87,7 @@ static void power_suspend(struct work_struct *work)
 	unsigned long irqflags;
 	int abort = 0;
 
+<<<<<<< HEAD
 	#ifdef POWER_SUSPEND_DEBUG
 	pr_info("[POWERSUSPEND] entering suspend...\n");
 	#endif
@@ -91,16 +103,32 @@ static void power_suspend(struct work_struct *work)
 	#ifdef POWER_SUSPEND_DEBUG
 	pr_info("[POWERSUSPEND] suspending...\n");
 	#endif
+=======
+	mutex_lock(&power_suspend_lock);
+	spin_lock_irqsave(&state_lock, irqflags);
+	if (state != 1)
+		abort = 1;
+	spin_unlock_irqrestore(&state_lock, irqflags);
+
+	if (abort) {
+		mutex_unlock(&power_suspend_lock);
+		return;
+	}
+
+>>>>>>> 2acc9c8... powersuspend: new PM kernel driver for Android w/o early_suspend
 	list_for_each_entry(pos, &power_suspend_handlers, link) {
 		if (pos->suspend != NULL) {
 			pos->suspend(pos);
 		}
 	}
+<<<<<<< HEAD
 
 	#ifdef POWER_SUSPEND_DEBUG
 	pr_info("[POWERSUSPEND] suspend completed.\n");
 	#endif
 abort_suspend:
+=======
+>>>>>>> 2acc9c8... powersuspend: new PM kernel driver for Android w/o early_suspend
 	mutex_unlock(&power_suspend_lock);
 }
 
@@ -110,6 +138,7 @@ static void power_resume(struct work_struct *work)
 	unsigned long irqflags;
 	int abort = 0;
 
+<<<<<<< HEAD
 	#ifdef POWER_SUSPEND_DEBUG
 	pr_info("[POWERSUSPEND] entering resume...\n");
 	#endif
@@ -125,11 +154,23 @@ static void power_resume(struct work_struct *work)
 	#ifdef POWER_SUSPEND_DEBUG
 	pr_info("[POWERSUSPEND] resuming...\n");
 	#endif
+=======
+	mutex_lock(&power_suspend_lock);
+	spin_lock_irqsave(&state_lock, irqflags);
+	if (state == 1)
+		abort = 1;
+	spin_unlock_irqrestore(&state_lock, irqflags);
+
+	if (abort) {
+		goto abort;
+	}
+>>>>>>> 2acc9c8... powersuspend: new PM kernel driver for Android w/o early_suspend
 	list_for_each_entry_reverse(pos, &power_suspend_handlers, link) {
 		if (pos->resume != NULL) {
 			pos->resume(pos);
 		}
 	}
+<<<<<<< HEAD
 	#ifdef POWER_SUSPEND_DEBUG
 	pr_info("[POWERSUSPEND] resume completed.\n");
 	#endif
@@ -153,12 +194,30 @@ void set_power_suspend_state(int new_state)
 		#ifdef POWER_SUSPEND_DEBUG
 		pr_info("[POWERSUSPEND] state deactivated.\n");
 		#endif
+=======
+abort:
+	mutex_unlock(&power_suspend_lock);
+}
+
+static void set_power_suspend_state(int new_state)
+{
+	unsigned long irqflags;
+	int old_sleep;
+
+	spin_lock_irqsave(&state_lock, irqflags);
+	old_sleep = state;
+	if (!old_sleep && new_state == 1) {
+		state = new_state;
+		queue_work(suspend_work_queue, &power_suspend_work);
+	} else if (!old_sleep || new_state == 0) {
+>>>>>>> 2acc9c8... powersuspend: new PM kernel driver for Android w/o early_suspend
 		state = new_state;
 		queue_work(suspend_work_queue, &power_resume_work);
 	}
 	spin_unlock_irqrestore(&state_lock, irqflags);
 }
 
+<<<<<<< HEAD
 
 void set_power_suspend_state_autosleep_hook(int new_state)
 {
@@ -187,11 +246,15 @@ EXPORT_SYMBOL(set_power_suspend_state_panel_hook);
 // ------------------------------------------ sysfs interface ------------------------------------------
 
 static ssize_t power_suspend_state_show(struct kobject *kobj,
+=======
+static ssize_t power_suspend_show(struct kobject *kobj,
+>>>>>>> 2acc9c8... powersuspend: new PM kernel driver for Android w/o early_suspend
 		struct kobj_attribute *attr, char *buf)
 {
         return sprintf(buf, "%u\n", state);
 }
 
+<<<<<<< HEAD
 static ssize_t power_suspend_state_store(struct kobject *kobj,
 		struct kobj_attribute *attr, const char *buf, size_t count)
 {
@@ -224,12 +287,16 @@ static ssize_t power_suspend_mode_show(struct kobject *kobj,
 }
 
 static ssize_t power_suspend_mode_store(struct kobject *kobj,
+=======
+static ssize_t power_suspend_store(struct kobject *kobj,
+>>>>>>> 2acc9c8... powersuspend: new PM kernel driver for Android w/o early_suspend
 		struct kobj_attribute *attr, const char *buf, size_t count)
 {
 	int data = 0;
 
 	sscanf(buf, "%d\n", &data);
 
+<<<<<<< HEAD
 	switch (data) {
 		case POWER_SUSPEND_AUTOSLEEP:
 		case POWER_SUSPEND_PANEL:
@@ -248,21 +315,44 @@ static struct kobj_attribute power_suspend_mode_attribute =
 		power_suspend_mode_show,
 		power_suspend_mode_store);
 
+=======
+	if(data == 1 || data == 0) {
+		set_power_suspend_state(data);
+		pr_info("power suspend state requested => %d\n", data);
+	}
+	return count;
+}
+
+>>>>>>> 2acc9c8... powersuspend: new PM kernel driver for Android w/o early_suspend
 static ssize_t power_suspend_version_show(struct kobject *kobj,
 		struct kobj_attribute *attr, char *buf)
 {
 	return sprintf(buf, "version: %d.%d\n", MAJOR_VERSION, MINOR_VERSION);
 }
 
+<<<<<<< HEAD
 static struct kobj_attribute power_suspend_version_attribute =
 	__ATTR(power_suspend_version, 0444,
+=======
+static struct kobj_attribute power_suspend_attribute =
+        __ATTR(power_suspend_state, 0666,
+		power_suspend_show,
+		power_suspend_store);
+
+static struct kobj_attribute power_suspend_version_attribute =
+        __ATTR(power_suspend_version, 0444,
+>>>>>>> 2acc9c8... powersuspend: new PM kernel driver for Android w/o early_suspend
 		power_suspend_version_show,
 		NULL);
 
 static struct attribute *power_suspend_attrs[] =
 {
+<<<<<<< HEAD
 	&power_suspend_state_attribute.attr,
 	&power_suspend_mode_attribute.attr,
+=======
+	&power_suspend_attribute.attr,
+>>>>>>> 2acc9c8... powersuspend: new PM kernel driver for Android w/o early_suspend
 	&power_suspend_version_attribute.attr,
 	NULL,
 };
@@ -274,7 +364,10 @@ static struct attribute_group power_suspend_attr_group =
 
 static struct kobject *power_suspend_kobj;
 
+<<<<<<< HEAD
 // ------------------ sysfs interface -----------------------
+=======
+>>>>>>> 2acc9c8... powersuspend: new PM kernel driver for Android w/o early_suspend
 static int __init power_suspend_init(void)
 {
 
@@ -301,12 +394,15 @@ static int __init power_suspend_init(void)
 	if (suspend_work_queue == NULL) {
 		return -ENOMEM;
 	}
+<<<<<<< HEAD
 
 //	mode = POWER_SUSPEND_AUTOSLEEP;	// Yank555.lu : Default to autosleep mode
 //	mode = POWER_SUSPEND_USERSPACE;	// Yank555.lu : Default to userspace mode
 	mode = POWER_SUSPEND_PANEL;	// Yank555.lu : Default to display panel mode
 //	mode = POWER_SUSPEND_HYBRID;	// Yank555.lu : Default to display panel / autosleep hybrid mode
 
+=======
+>>>>>>> 2acc9c8... powersuspend: new PM kernel driver for Android w/o early_suspend
 	return 0;
 }
 
@@ -321,7 +417,11 @@ static void __exit power_suspend_exit(void)
 core_initcall(power_suspend_init);
 module_exit(power_suspend_exit);
 
+<<<<<<< HEAD
 MODULE_AUTHOR("Paul Reioux <reioux@gmail.com> / Jean-Pierre Rasquin <yank555.lu@gmail.com>");
+=======
+MODULE_AUTHOR("Paul Reioux <reioux@gmail.com>");
+>>>>>>> 2acc9c8... powersuspend: new PM kernel driver for Android w/o early_suspend
 MODULE_DESCRIPTION("power_suspend - A replacement kernel PM driver for"
         "Android's deprecated early_suspend/late_resume PM driver!");
 MODULE_LICENSE("GPL v2");
