@@ -3385,6 +3385,7 @@ int __init msm_thermal_late_init(void)
 
 	msm_thermal_add_stat_nodes();
 	interrupt_mode_init();
+
 	return 0;
 }
 late_initcall(msm_thermal_late_init);
