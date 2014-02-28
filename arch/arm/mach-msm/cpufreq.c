@@ -404,6 +404,7 @@ bool is_used_by_scaling(unsigned int freq)
 	return false;
 }
 #endif
+}
 
 static int __init msm_cpufreq_probe(struct platform_device *pdev)
 {

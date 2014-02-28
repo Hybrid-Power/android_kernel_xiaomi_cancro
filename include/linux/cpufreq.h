@@ -121,9 +121,6 @@ struct cpufreq_policy {
 #define CPUFREQ_INCOMPATIBLE	(1)
 #define CPUFREQ_NOTIFY		(2)
 #define CPUFREQ_START		(3)
-#define CPUFREQ_CREATE_POLICY (5)
-#define CPUFREQ_REMOVE_POLICY (6)
-
 #define CPUFREQ_CREATE_POLICY	(5)
 #define CPUFREQ_REMOVE_POLICY	(6)
 
