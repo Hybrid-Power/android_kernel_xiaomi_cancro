@@ -56,6 +56,11 @@ module_param(input_boost_freq, uint, 0644);
 static unsigned int input_boost_ms = 40;
 module_param(input_boost_ms, uint, 0644);
 
+#ifdef CONFIG_LCD_NOTIFY
+bool wakeup_boost;
+module_param(wakeup_boost, bool, 0644);
+#endif
+
 static u64 last_input_time;
 #define MIN_INPUT_INTERVAL (150 * USEC_PER_MSEC)
 
