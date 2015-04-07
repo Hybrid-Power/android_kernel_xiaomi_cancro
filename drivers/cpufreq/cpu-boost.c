@@ -25,6 +25,11 @@
 #include <linux/slab.h>
 #include <linux/input.h>
 #include <linux/time.h>
+#ifdef CONFIG_STATE_NOTIFIER
+#include <linux/state_notifier.h>
+#else
+#include <linux/fb.h>
+#endif
 
 struct cpu_sync {
 	struct delayed_work boost_rem;
@@ -44,11 +49,16 @@ static struct workqueue_struct *cpu_boost_wq;
 
 static struct work_struct input_boost_work;
 
+static struct notifier_block notif;
+
 static unsigned int boost_ms;
 module_param(boost_ms, uint, 0644);
 
 static unsigned int sync_threshold;
 module_param(sync_threshold, uint, 0644);
+
+static bool input_boost_enabled;
+static bool suspended;
 
 static unsigned int input_boost_freq;
 module_param(input_boost_freq, uint, 0644);
@@ -56,10 +66,11 @@ module_param(input_boost_freq, uint, 0644);
 static unsigned int input_boost_ms = 40;
 module_param(input_boost_ms, uint, 0644);
 
-#ifdef CONFIG_LCD_NOTIFY
+static bool hotplug_boost = 1;
+module_param(hotplug_boost, bool, 0644);
+
 bool wakeup_boost;
 module_param(wakeup_boost, bool, 0644);
-#endif
 
 static u64 last_input_time;
 #define MIN_INPUT_INTERVAL (150 * USEC_PER_MSEC)
@@ -354,6 +365,81 @@ static struct input_handler cpuboost_input_handler = {
 	.id_table       = cpuboost_ids,
 };
 
+static int cpuboost_cpu_callback(struct notifier_block *cpu_nb,
+				 unsigned long action, void *hcpu)
+{
+	switch (action & ~CPU_TASKS_FROZEN) {
+	case CPU_UP_PREPARE:
+	case CPU_DEAD:
+	case CPU_UP_CANCELED:
+		break;
+	case CPU_ONLINE:
+		if (!hotplug_boost || !input_boost_enabled ||
+		     work_pending(&input_boost_work))
+			break;
+		pr_debug("Hotplug boost for CPU%d\n", (int)hcpu);
+		queue_work(cpu_boost_wq, &input_boost_work);
+		last_input_time = ktime_to_us(ktime_get());
+		break;
+	default:
+		break;
+	}
+	return NOTIFY_OK;
+}
+
+static struct notifier_block __refdata cpu_nblk = {
+        .notifier_call = cpuboost_cpu_callback,
+};
+
+static void __wakeup_boost(void)
+{
+	if (!wakeup_boost || !input_boost_enabled ||
+	     work_pending(&input_boost_work))
+		return;
+	pr_debug("Wakeup boost for display on event.\n");
+	queue_work(cpu_boost_wq, &input_boost_work);
+	last_input_time = ktime_to_us(ktime_get());
+}
+
+#ifdef CONFIG_STATE_NOTIFIER
+static int state_notifier_callback(struct notifier_block *this,
+				unsigned long event, void *data)
+{
+	switch (event) {
+		case STATE_NOTIFIER_ACTIVE:
+			__wakeup_boost();
+			break;
+		default:
+			break;
+	}
+
+	return NOTIFY_OK;
+}
+#else
+static int fb_notifier_callback(struct notifier_block *self,
+				unsigned long event, void *data)
+{
+	struct fb_event *evdata = data;
+	int *blank;
+
+	if (evdata && evdata->data && event == FB_EVENT_BLANK) {
+		blank = evdata->data;
+		switch (*blank) {
+			case FB_BLANK_UNBLANK:
+				__wakeup_boost();
+				break;
+			case FB_BLANK_POWERDOWN:
+			case FB_BLANK_HSYNC_SUSPEND:
+			case FB_BLANK_VSYNC_SUSPEND:
+			case FB_BLANK_NORMAL:
+				break;
+		}
+	}
+
+	return 0;
+}
+#endif
+
 static int cpu_boost_init(void)
 {
 	int cpu, ret;
@@ -383,6 +469,20 @@ static int cpu_boost_init(void)
 	ret = input_register_handler(&cpuboost_input_handler);
 	if (ret)
 		pr_err("Cannot register cpuboost input handler.\n");
+
+	ret = register_hotcpu_notifier(&cpu_nblk);
+	if (ret)
+		pr_err("Cannot register cpuboost hotplug handler.\n");
+
+#ifdef CONFIG_STATE_NOTIFIER
+	notif.notifier_call = state_notifier_callback;
+	if (state_register_client(&notif))
+		pr_err("Cannot register State notifier callback for cpuboost.\n");
+#else
+	notif.notifier_call = fb_notifier_callback;
+	if (fb_register_client(&notif))
+		pr_err("Cannot register FB notifier callback for cpuboost.\n");
+#endif
 
 	return ret;
 }
