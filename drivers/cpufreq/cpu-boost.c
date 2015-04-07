@@ -503,13 +503,10 @@ static int state_notifier_callback(struct notifier_block *this,
 				unsigned long event, void *data)
 {
 	switch (event) {
-	case LCD_EVENT_ON_START:
-	case LCD_EVENT_OFF_END:
-	case LCD_EVENT_OFF_START:
-		break;
-	case LCD_EVENT_ON_END:
-		if (!wakeup_boost || !input_boost_enabled ||
-		     work_pending(&input_boost_work))
+		case STATE_NOTIFIER_ACTIVE:
+			__wakeup_boost();
+			break;
+		default:
 			break;
 	}
 
