@@ -1,250 +1,391 @@
-From 9bb14a7f95887f6c5b7bdd34d19b87aa3171d1d6 Mon Sep 17 00:00:00 2001
-From: Pranav Vashi <neobuddy89@gmail.com>
-Date: Mon, 9 Nov 2015 16:12:34 -0500
-Subject: [PATCH] state_notifier: added new driver for on/off operations
+From c2ef3bcafe6e029f393b8b8a3843d24fcce5c2f0 Mon Sep 17 00:00:00 2001
+From: franciscofranco <franciscofranco.1990@gmail.com>
+Date: Tue, 1 Jul 2014 00:26:36 +0000
+Subject: [PATCH] sound: add sound control to increase headphones, speaker and
+ mic gain.
 
-* Doze mode and FB notifiers aren't friendly.
-  Introduce state notifier to make things smooth.
+Signed-off-by: franciscofranco <franciscofranco.1990@gmail.com>
 
-Change-Id: I1ddf6d0c50f1b5f543d75f546030bc705c722843
-Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+sound: wcd9320: tidy up things a little bit. Only accept signed values from now on. The 'headset gain' will only be used to remove some gain noise, increasing it beyond 1 step above the default doesn't make a difference so rather just have it decrease the gain.
+
+Signed-off-by: franciscofranco <franciscofranco.1990@gmail.com>
+
+sound: wcd9320: implement separate locks to prevent derps
+
+* playback, speaker and record locks only to the changed
+register values, we don't need the locks to go through other
+registers
+* this fixes a bug where a user adjusted the headphones gain
+and speaker and/or mic would stop working because the lock was
+enabled and the switch case would return earlier than it should
+* qualcomm, up yours
+
+Change-Id: I81f6f152f9d4449e9d19568ed3879d510189a709
+Signed-off-by: franciscofranco <franciscofranco.1990@gmail.com>
 ---
- drivers/soc/qcom/Kconfig          |   4 +
- drivers/soc/qcom/Makefile         |   1 +
- drivers/soc/qcom/state_notifier.c | 174 ++++++++++++++++++++++++++++++++++++++
- include/linux/state_notifier.h    |  21 +++++
- 4 files changed, 200 insertions(+)
- create mode 100644 drivers/soc/qcom/state_notifier.c
- create mode 100644 include/linux/state_notifier.h
+ drivers/misc/Makefile        |   1 +
+ drivers/misc/sound_control.c | 177 +++++++++++++++++++++++++++++++++++++++++++
+ sound/soc/codecs/wcd9320.c   | 118 ++++++++++++++++++++++++++++-
+ 3 files changed, 295 insertions(+), 1 deletion(-)
+ create mode 100644 drivers/misc/sound_control.c
 
-diff --git a/drivers/soc/qcom/Kconfig b/drivers/soc/qcom/Kconfig
-index bdb897a..ab42bb0 100644
---- a/drivers/soc/qcom/Kconfig
-+++ b/drivers/soc/qcom/Kconfig
-@@ -643,6 +643,10 @@ config KERNEL_TEXT_MPU_PROT
- 	  all masters; Write access is only permited to the
- 	  secure world.
- 
-+config STATE_NOTIFIER
-+        bool "State Notifier"
-+	default n
-+
- source "drivers/soc/qcom/memshare/Kconfig"
- 
- source "drivers/soc/qcom/lge/Kconfig"
-diff --git a/drivers/soc/qcom/Makefile b/drivers/soc/qcom/Makefile
-index 74f7249..041657a 100644
---- a/drivers/soc/qcom/Makefile
-+++ b/drivers/soc/qcom/Makefile
-@@ -88,3 +88,4 @@ obj-$(CONFIG_MSM_RTB) += msm_rtb-hotplug.o
- obj-$(CONFIG_QCOM_EARLY_RANDOM)	+= early_random.o
- obj-$(CONFIG_MSM_PACMAN)        += msm_pacman.o
- obj-$(CONFIG_MACH_LGE) += lge/
-+obj-$(CONFIG_STATE_NOTIFIER)		+= state_notifier.o
-diff --git a/drivers/soc/qcom/state_notifier.c b/drivers/soc/qcom/state_notifier.c
+diff --git a/drivers/misc/Makefile b/drivers/misc/Makefile
+index 8aaf631..e2d0ae1c 100644
+--- a/drivers/misc/Makefile
++++ b/drivers/misc/Makefile
+@@ -73,3 +73,4 @@ obj-$(CONFIG_QPNP_MISC) += qpnp-misc.o
+ obj-$(CONFIG_STM32_FW_UPDATER) += stm32fwu.o
+ stm32fwu-objs := stm32-fwu-i2c.o stm32-bootloader.o
+ obj-$(CONFIG_UID_CPUTIME) 	+= uid_cputime.o
++obj-y				+= sound_control.o
+diff --git a/drivers/misc/sound_control.c b/drivers/misc/sound_control.c
 new file mode 100644
-index 0000000..60383ba
+index 0000000..9930ed0
 --- /dev/null
-+++ b/drivers/soc/qcom/state_notifier.c
-@@ -0,0 +1,174 @@
++++ b/drivers/misc/sound_control.c
+@@ -0,0 +1,177 @@
 +/*
-+ * State Notifier Driver
-+ *
-+ * Copyright (c) 2013-2015, Pranav Vashi <neobuddy89@gmail.com>
++ * Copyright 2014 Francisco Franco
 + *
 + * This program is free software; you can redistribute it and/or modify
 + * it under the terms of the GNU General Public License version 2 as
 + * published by the Free Software Foundation.
-+ *
 + */
 +
-+#include <linux/state_notifier.h>
-+#include <linux/notifier.h>
-+#include <linux/export.h>
-+#include <linux/fb.h>
-+#include <linux/module.h>
++#include <linux/init.h>
++#include <linux/device.h>
++#include <linux/miscdevice.h>
 +
-+#define DEFAULT_SUSPEND_DEFER_TIME 	10
-+#define DEFAULT_USE_FB_NOTIFIER 	0
-+#define STATE_NOTIFIER			"state_notifier"
++extern void update_headphones_volume_boost(int vol_boost);
++extern void update_speaker_gain(int vol_boost);
++extern void update_mic_gain(int vol_boost);
 +
 +/*
-+ * debug = 1 will print all
++ * Volume boost value
 + */
-+static unsigned int debug;
-+module_param_named(debug_mask, debug, uint, 0644);
++int headphones_boost = 0;
++int headphones_boost_limit = 20;
++int headphones_boost_limit_min = -20;
 +
-+#define dprintk(msg...)		\
-+do {				\
-+	if (debug)		\
-+		pr_info(msg);	\
-+} while (0)
-+
-+static struct notifier_block notif;
-+static int prev_fb = FB_BLANK_UNBLANK;
-+static unsigned int suspend_defer_time = DEFAULT_SUSPEND_DEFER_TIME;
-+module_param_named(suspend_defer_time, suspend_defer_time, uint, 0664);
-+static struct delayed_work suspend_work;
-+static struct workqueue_struct *susp_wq;
-+struct work_struct resume_work;
-+bool state_suspended;
-+module_param_named(state_suspended, state_suspended, bool, 0444);
-+static bool suspend_in_progress;
-+bool use_fb_notifier = DEFAULT_USE_FB_NOTIFIER;
-+module_param_named(use_fb_notifier, use_fb_notifier, bool, 0664);
-+
-+static BLOCKING_NOTIFIER_HEAD(state_notifier_list);
-+
-+/**
-+ *	state_register_client - register a client notifier
-+ *	@nb: notifier block to callback on events
++/*
++ * Speaker boost value
 + */
-+int state_register_client(struct notifier_block *nb)
-+{
-+	return blocking_notifier_chain_register(&state_notifier_list, nb);
-+}
-+EXPORT_SYMBOL(state_register_client);
++int speaker_boost = 0;
++int speaker_boost_limit = 20;
++int speaker_boost_limit_min = -20;
 +
-+/**
-+ *	state_unregister_client - unregister a client notifier
-+ *	@nb: notifier block to callback on events
++/*
++ * Mic boost value
 + */
-+int state_unregister_client(struct notifier_block *nb)
-+{
-+	return blocking_notifier_chain_unregister(&state_notifier_list, nb);
-+}
-+EXPORT_SYMBOL(state_unregister_client);
++int mic_boost = 0;
++int mic_boost_limit = 20;
++int mic_boost_limit_min = -20;
 +
-+/**
-+ *	state_notifier_call_chain - notify clients on state_events
-+ *	@val: Value passed unmodified to notifier function
-+ *	@v: pointer passed unmodified to notifier function
-+ *
++/*
++ * Sysfs get/set entries
 + */
-+int state_notifier_call_chain(unsigned long val, void *v)
-+{
-+	return blocking_notifier_call_chain(&state_notifier_list, val, v);
-+}
-+EXPORT_SYMBOL_GPL(state_notifier_call_chain);
 +
-+static void _suspend_work(struct work_struct *work)
++static ssize_t headphones_boost_show(struct device *dev, 
++		struct device_attribute *attr, char *buf)
 +{
-+	state_notifier_call_chain(STATE_NOTIFIER_SUSPEND, NULL);
-+	state_suspended = true;
-+	suspend_in_progress = false;
-+	dprintk("%s: suspend completed.\n", STATE_NOTIFIER);
++    return sprintf(buf, "%d\n", headphones_boost);
 +}
 +
-+static void _resume_work(struct work_struct *work)
++static ssize_t headphones_boost_store(struct device *dev,
++		struct device_attribute *attr, const char *buf, size_t size)
 +{
-+	state_notifier_call_chain(STATE_NOTIFIER_ACTIVE, NULL);
-+	state_suspended = false;
-+	dprintk("%s: resume completed.\n", STATE_NOTIFIER);
-+}
++    int new_val;
 +
-+void state_suspend(void)
-+{
-+	dprintk("%s: suspend called.\n", STATE_NOTIFIER);
-+	if (state_suspended || suspend_in_progress)
-+		return;
++	sscanf(buf, "%d", &new_val);
 +
-+	suspend_in_progress = true;
++	if (new_val != headphones_boost) {
++		if (new_val <= headphones_boost_limit_min)
++			new_val = headphones_boost_limit_min;
 +
-+	INIT_DELAYED_WORK(&suspend_work, _suspend_work);
-+	queue_delayed_work_on(0, susp_wq, &suspend_work, 
-+		msecs_to_jiffies(suspend_defer_time * 1000));
-+}
++		else if (new_val >= headphones_boost_limit)
++			new_val = headphones_boost_limit;
 +
-+void state_resume(void)
-+{
-+	dprintk("%s: resume called.\n", STATE_NOTIFIER);
-+	flush_workqueue(susp_wq);
-+	cancel_delayed_work_sync(&suspend_work);
-+	suspend_in_progress = false;
++		pr_info("New headphones_boost: %d\n", new_val);
 +
-+	if (state_suspended)
-+		queue_work_on(0, susp_wq, &resume_work);
-+}
-+
-+static int fb_notifier_callback(struct notifier_block *self,
-+				unsigned long event, void *data)
-+{
-+	struct fb_event *evdata = data;
-+	int *blank;
-+
-+	if (!use_fb_notifier)
-+		return NOTIFY_OK;
-+
-+	if (evdata && evdata->data && event == FB_EVENT_BLANK) {
-+		blank = evdata->data;
-+		switch (*blank) {
-+			case FB_BLANK_UNBLANK:
-+				if (prev_fb == FB_BLANK_POWERDOWN) {
-+					state_resume();
-+					prev_fb = FB_BLANK_UNBLANK;
-+				}
-+				break;
-+			case FB_BLANK_POWERDOWN:
-+				if (prev_fb == FB_BLANK_UNBLANK) {
-+					state_suspend();
-+					prev_fb = FB_BLANK_POWERDOWN;
-+				}
-+				break;
-+		}
++		headphones_boost = new_val;
++		update_headphones_volume_boost(headphones_boost);
 +	}
-+	return NOTIFY_OK;
++
++    return size;
 +}
 +
-+
-+static int __init state_notifier_init(void)
++static ssize_t speaker_boost_show(struct device *dev, 
++		struct device_attribute *attr, char *buf)
 +{
-+	int ret;
++    return sprintf(buf, "%d\n", speaker_boost);
++}
 +
-+	notif.notifier_call = fb_notifier_callback;
-+	ret = fb_register_client(&notif);
-+	if (ret)
-+		pr_err("Failed to register FB notifier callback for state notifier.\n");
++static ssize_t speaker_boost_store(struct device *dev,
++		struct device_attribute *attr, const char *buf, size_t size)
++{
++    int new_val;
 +
-+	susp_wq =
-+	    alloc_workqueue("state_susp_wq", WQ_FREEZABLE, 0);
-+	if (!susp_wq)
-+		pr_err("State Notifier failed to allocate suspend workqueue\n");
++	sscanf(buf, "%d", &new_val);
 +
-+	INIT_DELAYED_WORK(&suspend_work, _suspend_work);
-+	INIT_WORK(&resume_work, _resume_work);
++	if (new_val != speaker_boost) {
++		if (new_val <= speaker_boost_limit_min)
++			new_val = speaker_boost_limit_min;
++
++		else if (new_val >= speaker_boost_limit)
++			new_val = speaker_boost_limit;
++
++		pr_info("New speaker_boost: %d\n", new_val);
++
++		speaker_boost = new_val;
++		update_speaker_gain(speaker_boost);
++	}
++
++    return size;
++}
++
++static ssize_t mic_boost_show(struct device *dev,
++		struct device_attribute *attr, char *buf)
++{
++    return sprintf(buf, "%d\n", mic_boost);
++}
++
++static ssize_t mic_boost_store(struct device *dev,
++		struct device_attribute *attr, const char *buf, size_t size)
++{
++    int new_val;
++
++	sscanf(buf, "%d", &new_val);
++
++	if (new_val != mic_boost) {
++		if (new_val <= mic_boost_limit_min)
++			new_val = mic_boost_limit_min;
++
++		else if (new_val >= mic_boost_limit)
++			new_val = mic_boost_limit;
++
++		pr_info("New mic_boost: %d\n", new_val);
++
++		mic_boost = new_val;
++		update_mic_gain(mic_boost);
++	}
++
++    return size;
++}
++
++static DEVICE_ATTR(volume_boost, 0664, headphones_boost_show, 
++	headphones_boost_store);
++static DEVICE_ATTR(speaker_boost, 0664, speaker_boost_show, 
++	speaker_boost_store);
++static DEVICE_ATTR(mic_boost, 0664, mic_boost_show, mic_boost_store);
++
++static struct attribute *soundcontrol_attributes[] =
++{
++	&dev_attr_volume_boost.attr,
++	&dev_attr_speaker_boost.attr,
++	&dev_attr_mic_boost.attr,
++	NULL
++};
++
++static struct attribute_group soundcontrol_group =
++{
++	.attrs  = soundcontrol_attributes,
++};
++
++static struct miscdevice soundcontrol_device =
++{
++	.minor = MISC_DYNAMIC_MINOR,
++	.name = "soundcontrol",
++};
++
++static int __init soundcontrol_init(void)
++{
++    int ret;
++
++    pr_info("%s misc_register(%s)\n", __FUNCTION__, soundcontrol_device.name);
++
++    ret = misc_register(&soundcontrol_device);
++
++    if (ret) {
++	    pr_err("%s misc_register(%s) fail\n", __FUNCTION__, 
++	    	soundcontrol_device.name);
++	    return 1;
++	}
++
++	if (sysfs_create_group(&soundcontrol_device.this_device->kobj, 
++    		&soundcontrol_group) < 0) {
++	    pr_err("%s sysfs_create_group fail\n", __FUNCTION__);
++	    pr_err("Failed to create sysfs group for device (%s)!\n", 
++	    	soundcontrol_device.name);
++	}
++
++    return 0;
++}
++late_initcall(soundcontrol_init);
+diff --git a/sound/soc/codecs/wcd9320.c b/sound/soc/codecs/wcd9320.c
+index 01f2214..b8202d0 100644
+--- a/sound/soc/codecs/wcd9320.c
++++ b/sound/soc/codecs/wcd9320.c
+@@ -51,6 +51,20 @@
+ #include "tpa6130a2.h"
+ #endif
+ 
++struct sound_control {
++	int default_headphones_value;
++	int default_speaker_value;
++	int default_mic_value;
++	struct snd_soc_codec *snd_control_codec;
++	bool playback_lock;
++	bool speaker_lock;
++	bool recording_lock;
++} soundcontrol = {
++	.playback_lock = false,
++	.speaker_lock = false,
++	.recording_lock = false,
++};
++
+ #define TAIKO_MAD_SLIMBUS_TX_PORT 12
+ #define TAIKO_MAD_AUDIO_FIRMWARE_PATH "wcd9320/wcd9320_mad_audio.bin"
+ #define TAIKO_VALIDATE_RX_SBPORT_RANGE(port) ((port >= 16) && (port <= 22))
+@@ -4419,9 +4433,35 @@ static int taiko_volatile(struct snd_soc_codec *ssc, unsigned int reg)
+ 	return 0;
+ }
+ 
++static int reg_access(unsigned int reg)
++{
++	int ret = 1;
++
++	switch (reg) {
++		case TAIKO_A_CDC_RX1_VOL_CTL_B2_CTL:
++		case TAIKO_A_CDC_RX2_VOL_CTL_B2_CTL:
++			if (soundcontrol.playback_lock)
++                                ret = 0;
++                        break;
++		case TAIKO_A_CDC_RX3_VOL_CTL_B2_CTL:
++			if (soundcontrol.speaker_lock)
++                                ret = 0;
++			break;
++		case TAIKO_A_CDC_TX3_VOL_CTL_GAIN:
++			if (soundcontrol.recording_lock)
++				ret = 0;
++			break;
++		default:
++			break;
++		}
 +
 +	return ret;
 +}
 +
-+late_initcall(state_notifier_init);
+ static int taiko_write(struct snd_soc_codec *codec, unsigned int reg,
+ 	unsigned int value)
+ {
++	int val;
+ 	int ret;
+ 	struct wcd9xxx *wcd9xxx = codec->control_data;
+ 
+@@ -4437,8 +4477,14 @@ static int taiko_write(struct snd_soc_codec *codec, unsigned int reg,
+ 				reg, ret);
+ 	}
+ 
+-	return wcd9xxx_reg_write(&wcd9xxx->core_res, reg, value);
++	if (!reg_access(reg))
++		val = wcd9xxx_reg_read(&wcd9xxx->core_res, reg);
++	else
++		val = value;
 +
-+MODULE_AUTHOR("Pranav Vashi <neobuddy89@gmail.com>");
-+MODULE_DESCRIPTION("State Notifier Driver");
-+MODULE_LICENSE("GPLv2");
-diff --git a/include/linux/state_notifier.h b/include/linux/state_notifier.h
-new file mode 100644
-index 0000000..f25d3b3
---- /dev/null
-+++ b/include/linux/state_notifier.h
-@@ -0,0 +1,21 @@
-+#ifndef __LINUX_STATE_NOTIFIER_H
-+#define __LINUX_STATE_NOTIFIER_H
++	return wcd9xxx_reg_write(&wcd9xxx->core_res, reg, val);
+ }
 +
-+#include <linux/notifier.h>
+ static unsigned int taiko_read(struct snd_soc_codec *codec,
+ 				unsigned int reg)
+ {
+@@ -7163,6 +7209,63 @@ static struct regulator *taiko_codec_find_regulator(struct snd_soc_codec *codec,
+ 	return NULL;
+ }
+ 
++void update_headphones_volume_boost(unsigned int vol_boost)
++{
++	int default_val = soundcontrol.default_headphones_value;
++	int boosted_val = default_val + vol_boost;
 +
-+#define STATE_NOTIFIER_ACTIVE		0x01
-+#define STATE_NOTIFIER_SUSPEND		0x02
++	pr_info("Sound Control: Headphones default value %d\n", default_val);
 +
-+struct state_event {
-+	void *data;
-+};
++	soundcontrol.playback_lock = false;
++	taiko_write(soundcontrol.snd_control_codec,
++		TAIKO_A_CDC_RX1_VOL_CTL_B2_CTL, boosted_val);
++	taiko_write(soundcontrol.snd_control_codec,
++		TAIKO_A_CDC_RX2_VOL_CTL_B2_CTL, boosted_val);
++	soundcontrol.playback_lock = true;
 +
-+extern bool state_suspended;
-+extern bool use_fb_notifier;
-+extern void state_suspend(void);
-+extern void state_resume(void);
-+int state_register_client(struct notifier_block *nb);
-+int state_unregister_client(struct notifier_block *nb);
-+int state_notifier_call_chain(unsigned long val, void *v);
++	pr_info("Sound Control: Boosted Headphones RX1 value %d\n",
++		taiko_read(soundcontrol.snd_control_codec,
++		TAIKO_A_CDC_RX1_VOL_CTL_B2_CTL));
 +
-+#endif /* _LINUX_STATE_NOTIFIER_H */
++	pr_info("Sound Control: Boosted Headphones RX2 value %d\n",
++		taiko_read(soundcontrol.snd_control_codec,
++		TAIKO_A_CDC_RX2_VOL_CTL_B2_CTL));
++}
++
++void update_speaker_gain(int vol_boost)
++{
++	int default_val = soundcontrol.default_speaker_value;
++	int boosted_val = default_val + vol_boost;
++
++	pr_info("Sound Control: Speaker default value %d\n", default_val);
++
++	soundcontrol.speaker_lock = false;
++	taiko_write(soundcontrol.snd_control_codec,
++		TAIKO_A_CDC_RX3_VOL_CTL_B2_CTL, boosted_val);
++	soundcontrol.speaker_lock = true;
++
++	pr_info("Sound Control: Boosted Speaker RX3 value %d\n",
++		taiko_read(soundcontrol.snd_control_codec,
++		TAIKO_A_CDC_RX3_VOL_CTL_B2_CTL));
++}
++
++void update_mic_gain(unsigned int vol_boost)
++{
++	int default_val = soundcontrol.default_mic_value;
++	int boosted_val = default_val + vol_boost;
++
++	pr_info("Sound Control: Mic default value %d\n", default_val);
++
++	soundcontrol.recording_lock = false;
++	taiko_write(soundcontrol.snd_control_codec,
++		TAIKO_A_CDC_TX3_VOL_CTL_GAIN, boosted_val);
++	soundcontrol.recording_lock = true;
++
++	pr_info("Sound Control: Boosted Mic value %d\n",
++		taiko_read(soundcontrol.snd_control_codec,
++		TAIKO_A_CDC_TX3_VOL_CTL_GAIN));
++}
++
+ static int taiko_codec_probe(struct snd_soc_codec *codec)
+ {
+ 	struct wcd9xxx *control;
+@@ -7176,6 +7279,8 @@ static int taiko_codec_probe(struct snd_soc_codec *codec)
+ 	struct wcd9xxx *core = dev_get_drvdata(codec->dev->parent);
+ 	struct wcd9xxx_core_resource *core_res;
+ 
++	soundcontrol.snd_control_codec = codec;
++
+ 	codec->control_data = dev_get_drvdata(codec->dev->parent);
+ 	control = codec->control_data;
+ 
+@@ -7377,6 +7482,17 @@ static int taiko_codec_probe(struct snd_soc_codec *codec)
+ 	mutex_unlock(&dapm->codec->mutex);
+ 
+ 	codec->ignore_pmdown_time = 1;
++
++	/*
++	 * Get the default values during probe
++	 */
++	soundcontrol.default_headphones_value = taiko_read(codec,
++		TAIKO_A_CDC_RX1_VOL_CTL_B2_CTL);
++	soundcontrol.default_speaker_value = taiko_read(codec,
++		TAIKO_A_CDC_RX3_VOL_CTL_B2_CTL);
++	soundcontrol.default_mic_value = taiko_read(codec,
++		TAIKO_A_CDC_TX3_VOL_CTL_GAIN);
++
+ 	return ret;
+ 
+ err_irq:

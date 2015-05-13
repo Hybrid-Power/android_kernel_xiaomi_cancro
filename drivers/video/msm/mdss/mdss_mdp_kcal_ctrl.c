@@ -161,6 +161,34 @@ static void mdss_mdp_kcal_update_pa(struct kcal_lut_data *lut_data)
 	}
 }
 
+static void mdss_mdp_kcal_update_igc(struct kcal_lut_data *lut_data)
+{
+	u32 copyback = 0, copy_from_kernel = 1;
+	struct mdp_igc_lut_data igc_config;
+
+	memset(&igc_config, 0, sizeof(struct mdp_igc_lut_data));
+
+	igc_config.block = MDP_LOGICAL_BLOCK_DISP_0;
+	igc_config.ops = lut_data->invert && lut_data->enable ?
+		MDP_PP_OPS_WRITE | MDP_PP_OPS_ENABLE :
+			MDP_PP_OPS_WRITE | MDP_PP_OPS_DISABLE;
+	igc_config.len = IGC_LUT_ENTRIES;
+	igc_config.c0_c1_data = igc_inverted;
+	igc_config.c2_data = igc_rgb;
+
+	mdss_mdp_igc_lut_config(&igc_config, &copyback, copy_from_kernel);
+}
+
+static void mdss_mdp_kcal_check_pcc(struct kcal_lut_data *lut_data)
+{
+	lut_data->red = lut_data->red < lut_data->minimum ?
+		lut_data->minimum : lut_data->red;
+	lut_data->green = lut_data->green < lut_data->minimum ?
+		lut_data->minimum : lut_data->green;
+	lut_data->blue = lut_data->blue < lut_data->minimum ?
+		lut_data->minimum : lut_data->blue;
+}
+
 static ssize_t kcal_store(struct device *dev, struct device_attribute *attr,
 						const char *buf, size_t count)
 {
