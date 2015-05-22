@@ -4,8 +4,8 @@
  * Copyright (C) 2010 Google, Inc.
  * Copyright (C) 2015 Javier Sayago <admin@lonasdigital.com>
  *
- * Barry_Allen Version 0.3
- * 02-05-2015
+ * Barry_Allen Version 0.4
+ * Last Update >> 22-05-2015
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -40,6 +40,8 @@
 #include <trace/events/cpufreq_barry_allen.h>
 
 static int active_count;
+
+static bool ba_locked = false;
 
 struct cpufreq_barry_allen_cpuinfo {
 	struct timer_list cpu_timer;
@@ -810,6 +812,9 @@ static ssize_t store_target_loads(
 	unsigned int *new_target_loads = NULL;
 	unsigned long flags;
 
+	if (ba_locked)
+		return count;
+
 	new_target_loads = get_tokenized_data(buf, &ntokens);
 	if (IS_ERR(new_target_loads))
 		return PTR_RET(new_target_loads);
@@ -884,6 +889,9 @@ static ssize_t store_hispeed_freq(struct kobject *kobj,
 	int ret;
 	long unsigned int val;
 
+	if (ba_locked)
+		return count;
+
 	ret = strict_strtoul(buf, 0, &val);
 	if (ret < 0)
 		return ret;
@@ -906,6 +914,9 @@ static ssize_t store_sampling_down_factor(struct kobject *kobj,
 {
 	int ret;
 	long unsigned int val;
+
+	if (ba_locked)
+		return count;
 
 	ret = strict_strtoul(buf, 0, &val);
 	if (ret < 0)
@@ -930,6 +941,9 @@ static ssize_t store_go_hispeed_load(struct kobject *kobj,
 	int ret;
 	unsigned long val;
 
+	if (ba_locked)
+		return count;
+
 	ret = strict_strtoul(buf, 0, &val);
 	if (ret < 0)
 		return ret;
@@ -952,6 +966,9 @@ static ssize_t store_min_sample_time(struct kobject *kobj,
 	int ret;
 	unsigned long val;
 
+	if (ba_locked)
+		return count;
+
 	ret = strict_strtoul(buf, 0, &val);
 	if (ret < 0)
 		return ret;
@@ -973,6 +990,9 @@ static ssize_t store_timer_rate(struct kobject *kobj,
 {
 	int ret;
 	unsigned long val;
+
+	if (ba_locked)
+		return count;
 
 	ret = strict_strtoul(buf, 0, &val);
 	if (ret < 0)
@@ -997,6 +1017,9 @@ static ssize_t store_timer_slack(
 	int ret;
 	unsigned long val;
 
+	if (ba_locked)
+		return count;
+
 	ret = kstrtol(buf, 10, &val);
 	if (ret < 0)
 		return ret;
@@ -1004,6 +1027,37 @@ static ssize_t store_timer_slack(
 	timer_slack_val = val;
 	return count;
 }
+
+static ssize_t show_ba_locked(struct kobject *kobj,
+			struct attribute *attr, char *buf)
+{
+	if (ba_locked)
+		return snprintf(buf, PAGE_SIZE, "1\n");
+	
+	return snprintf(buf, PAGE_SIZE, "0\n");
+}
+
+static ssize_t store_ba_locked(
+	struct kobject *kobj, struct attribute *attr, const char *buf,
+	size_t count)
+{
+	int ret;
+	unsigned long val;
+
+	ret = kstrtol(buf, 10, &val);
+	if (ret < 0)
+		return ret;
+
+	if (val == 1)
+		ba_locked = true;
+	else
+		ba_locked = false;
+	
+	return count;
+}
+
+static struct global_attr ba_locked_attr = __ATTR(ba_locked, 0644,
+		show_ba_locked, store_ba_locked);
 
 define_one_global_rw(timer_slack);
 
@@ -1018,6 +1072,9 @@ static ssize_t store_boost(struct kobject *kobj, struct attribute *attr,
 {
 	int ret;
 	unsigned long val;
+
+	if (ba_locked)
+		return count;
 
 	ret = kstrtoul(buf, 0, &val);
 	if (ret < 0)
@@ -1043,6 +1100,9 @@ static ssize_t store_boostpulse(struct kobject *kobj, struct attribute *attr,
 {
 	int ret;
 	unsigned long val;
+
+	if (ba_locked)
+		return count;
 
 	ret = kstrtoul(buf, 0, &val);
 	if (ret < 0)
@@ -1071,6 +1131,9 @@ static ssize_t store_boostpulse_duration(
 	int ret;
 	unsigned long val;
 
+	if (ba_locked)
+		return count;
+
 	ret = kstrtoul(buf, 0, &val);
 	if (ret < 0)
 		return ret;
@@ -1092,6 +1155,9 @@ static ssize_t store_io_is_busy(struct kobject *kobj,
 {
 	int ret;
 	unsigned long val;
+
+	if (ba_locked)
+		return count;
 
 	ret = kstrtoul(buf, 0, &val);
 	if (ret < 0)
@@ -1115,6 +1181,9 @@ static ssize_t store_sync_freq(struct kobject *kobj,
 	int ret;
 	unsigned long val;
 
+	if (ba_locked)
+		return count;
+
 	ret = kstrtoul(buf, 0, &val);
 	if (ret < 0)
 		return ret;
@@ -1136,6 +1205,9 @@ static ssize_t store_up_threshold_any_cpu_load(struct kobject *kobj,
 {
 	int ret;
 	unsigned long val;
+
+	if (ba_locked)
+		return count;
 
 	ret = kstrtoul(buf, 0, &val);
 	if (ret < 0)
@@ -1161,6 +1233,9 @@ static ssize_t store_up_threshold_any_cpu_freq(struct kobject *kobj,
 	int ret;
 	unsigned long val;
 
+	if (ba_locked)
+		return count;
+
 	ret = kstrtoul(buf, 0, &val);
 	if (ret < 0)
 		return ret;
@@ -1174,6 +1249,7 @@ static struct global_attr up_threshold_any_cpu_freq_attr =
 				store_up_threshold_any_cpu_freq);
 
 static struct attribute *barry_allen_attributes[] = {
+	&ba_locked_attr.attr,
 	&target_loads_attr.attr,
 	&above_hispeed_delay_attr.attr,
 	&hispeed_freq_attr.attr,
