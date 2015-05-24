@@ -161,9 +161,6 @@ static void cpufreq_barry_allen_timer_resched(
 	unsigned long flags;
 
 	spin_lock_irqsave(&pcpu->load_lock, flags);
-	pcpu->time_in_idle =
-		get_cpu_idle_time(smp_processor_id(),
-				  &pcpu->time_in_idle_timestamp, io_is_busy);
 	pcpu->cputime_speedadj = 0;
 	pcpu->cputime_speedadj_timestamp = pcpu->time_in_idle_timestamp;
 	expires = jiffies + usecs_to_jiffies(timer_rate);
@@ -200,9 +197,6 @@ static void cpufreq_barry_allen_timer_start(int cpu, int time_override)
 	}
 
 	spin_lock_irqsave(&pcpu->load_lock, flags);
-	pcpu->time_in_idle =
-		get_cpu_idle_time(cpu, &pcpu->time_in_idle_timestamp,
-				  io_is_busy);
 	pcpu->cputime_speedadj = 0;
 	pcpu->cputime_speedadj_timestamp = pcpu->time_in_idle_timestamp;
 	spin_unlock_irqrestore(&pcpu->load_lock, flags);
@@ -271,7 +265,7 @@ static unsigned int choose_freq(
 
 		if (cpufreq_frequency_table_target(
 			    pcpu->policy, pcpu->freq_table, loadadjfreq / tl,
-			    CPUFREQ_RELATION_C, &index))
+			    CPUFREQ_RELATION_L, &index))
 			break;
 		freq = pcpu->freq_table[index].frequency;
 
@@ -313,7 +307,7 @@ static unsigned int choose_freq(
 				 */
 				if (cpufreq_frequency_table_target(
 					    pcpu->policy, pcpu->freq_table,
-					    freqmin + 1, CPUFREQ_RELATION_C,
+					    freqmin + 1, CPUFREQ_RELATION_L,
 					    &index))
 					break;
 				freq = pcpu->freq_table[index].frequency;
@@ -343,7 +337,7 @@ static u64 update_load(int cpu)
 	unsigned int delta_time;
 	u64 active_time;
 
-	now_idle = get_cpu_idle_time(cpu, &now, io_is_busy);
+	//now_idle = get_cpu_idle_time(cpu, &now, io_is_busy);
 	delta_idle = (unsigned int)(now_idle - pcpu->time_in_idle);
 	delta_time = (unsigned int)(now - pcpu->time_in_idle_timestamp);
 
@@ -446,7 +440,7 @@ static void cpufreq_barry_allen_timer(unsigned long data)
 	pcpu->hispeed_validate_time = now;
 
 	if (cpufreq_frequency_table_target(pcpu->policy, pcpu->freq_table,
-					   new_freq, CPUFREQ_RELATION_C,
+					   new_freq, CPUFREQ_RELATION_L,
 					   &index))
 		goto rearm;
 
@@ -791,7 +785,7 @@ static ssize_t show_target_loads(
 		ret += sprintf(buf + ret, "%u%s", target_loads[i],
 			       i & 0x1 ? ":" : " ");
 
-	ret += sprintf(buf + --ret, "\n");
+	ret += sprintf(buf + -ret, "\n");
 	spin_unlock_irqrestore(&target_loads_lock, flags);
 	return ret;
 }
@@ -834,7 +828,7 @@ static ssize_t show_above_hispeed_delay(
 		ret += sprintf(buf + ret, "%u%s", above_hispeed_delay[i],
 			       i & 0x1 ? ":" : " ");
 
-	ret += sprintf(buf + --ret, "\n");
+	ret += sprintf(buf + -ret, "\n");
 	spin_unlock_irqrestore(&above_hispeed_delay_lock, flags);
 	return ret;
 }
@@ -1257,10 +1251,10 @@ static int cpufreq_governor_barry_allen(struct cpufreq_policy *policy,
 			return 0;
 		}
 
-		if (!have_governor_per_policy())
-			WARN_ON(cpufreq_get_global_kobject());
+		//if (!have_governor_per_policy())
+			//WARN_ON(cpufreq_get_global_kobject());
 
-		rc = sysfs_create_group(get_governor_parent_kobj(policy),
+		rc = sysfs_create_group(cpufreq_global_kobject,
 				&barry_allen_attr_group);
 		if (rc) {
 			mutex_unlock(&gov_lock);
@@ -1293,10 +1287,10 @@ static int cpufreq_governor_barry_allen(struct cpufreq_policy *policy,
 		cpufreq_unregister_notifier(
 			&cpufreq_notifier_block, CPUFREQ_TRANSITION_NOTIFIER);
 		idle_notifier_unregister(&cpufreq_barry_allen_idle_nb);
-		sysfs_remove_group(get_governor_parent_kobj(policy),
+		sysfs_remove_group(cpufreq_global_kobject,
 				&barry_allen_attr_group);
-		if (!have_governor_per_policy())
-			cpufreq_put_global_kobject();
+		//if (!have_governor_per_policy())
+			//cpufreq_put_global_kobject();
 		mutex_unlock(&gov_lock);
 
 		break;
@@ -1307,7 +1301,7 @@ static int cpufreq_governor_barry_allen(struct cpufreq_policy *policy,
 					policy->max, CPUFREQ_RELATION_H);
 		else if (policy->min > policy->cur)
 			__cpufreq_driver_target(policy,
-					policy->min, CPUFREQ_RELATION_C);
+					policy->min, CPUFREQ_RELATION_L);
 		for_each_cpu(j, policy->cpus) {
 			pcpu = &per_cpu(cpuinfo, j);
 
