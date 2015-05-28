@@ -3600,13 +3600,12 @@ static int binder_proc_show(struct seq_file *m, void *unused)
 		if (itr == proc) {
 			valid_proc = true;
 			break;
-			}
+		}
 	}
 	if (valid_proc) {
 		seq_puts(m, "binder proc state:\n");
 		print_binder_proc(m, proc, 1);
 	}
-
 	if (do_lock)
 		mutex_unlock(&binder_lock);
 	return 0;
