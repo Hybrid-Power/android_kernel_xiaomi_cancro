@@ -367,9 +367,9 @@ static int cpu_boost_init(void)
 					"boost_sync/%d", cpu);
 		set_cpus_allowed(s->thread, *cpumask_of(cpu));
 	}
-	cpufreq_register_notifier(&boost_adjust_nb, CPUFREQ_POLICY_NOTIFIER);
 	atomic_notifier_chain_register(&migration_notifier_head,
 					&boost_migration_nb);
+
 	ret = input_register_handler(&cpuboost_input_handler);
 
 	return 0;
