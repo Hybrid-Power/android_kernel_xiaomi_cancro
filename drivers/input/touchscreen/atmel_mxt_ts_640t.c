@@ -33,6 +33,8 @@
 #include <linux/notifier.h>
 #include <linux/fb.h>
 #endif
+#include <linux/input/doubletap2wake.h>
+#include <linux/input/wake_helpers.h>
 
 
 /* Version */
@@ -4122,10 +4124,13 @@ static void mxt_enable_gesture_mode(struct mxt_data *data)
 	u8 t81_val;
 	int error;
 
-	if (data->wakeup_gesture_mode)
+	if (data->wakeup_gesture_mode) {
 		t81_val = 7;
-	else
+                dt2w_switch = 0; //to avoid conflict, we need to disable sw wakeup
+        } else {
 		t81_val = 0;
+                dt2w_switch = 0;
+        }
 
 	error = mxt_write_object(data, MXT_TOUCH_MORE_GESTURE_T81,
 				MXT_GESTURE_CTRL, t81_val);
@@ -4143,8 +4148,8 @@ static ssize_t  mxt_wakeup_mode_store(struct device *dev,
 	unsigned long val;
 	int error;
 
-	if (pdata->config_array[index].wake_up_self_adcx == 0)
-		return count;
+// 	if (pdata->config_array[index].wake_up_self_adcx == 0)
+// 		return count;
 
 	error = strict_strtoul(buf, 0, &val);
 
@@ -4586,7 +4591,7 @@ static void mxt_start(struct mxt_data *data)
 	int error;
 	struct device *dev = &data->client->dev;
 
-	if (data->wakeup_gesture_mode) {
+	if (data->wakeup_gesture_mode && !in_phone_call()) {
 		mxt_set_gesture_wake_up(data, false);
 		if (!data->is_wakeup_by_gesture)
 			mxt_set_t7_for_gesture(data, false);
@@ -4614,7 +4619,7 @@ static void mxt_stop(struct mxt_data *data)
 	int error;
 	struct device *dev = &data->client->dev;
 
-	if (data->wakeup_gesture_mode) {
+	if (data->wakeup_gesture_mode && !in_phone_call()) {
 		data->is_wakeup_by_gesture = false;
 		mxt_set_t7_for_gesture(data, true);
 		mxt_set_gesture_wake_up(data, true);
@@ -4671,45 +4676,49 @@ static int mxt_suspend(struct device *dev)
 	struct mxt_data *data = i2c_get_clientdata(client);
 	struct input_dev *input_dev = data->input_dev;
 
-	if (data->pdata->cut_off_power) {
-		/* In the power is cut off with LCD off, wake up gesture can not be used */
-		mutex_lock(&input_dev->mutex);
-
-		if (data->is_stopped) {
-			mutex_unlock(&input_dev->mutex);
-			return 0;
-		}
-
-		mxt_disable_irq(data);
-		gpio_set_value(data->pdata->reset_gpio, 0);
-
-		mxt_clear_touch_event(data);
-
-		if (data->regulator_vdd && data->regulator_avdd && data->regulator_vddio) {
-			ret = regulator_disable(data->regulator_avdd);
-			if (ret < 0) {
-				dev_err(dev,
-				"Atmel regulator disable for avdd failed: %d\n", ret);
-			}
-			ret = regulator_disable(data->regulator_vdd);
-			if (ret < 0) {
-				dev_err(dev,
-				"Atmel regulator disable for vdd failed: %d\n", ret);
-			}
-
-			ret = regulator_disable(data->regulator_vddio);
-			if (ret < 0) {
-				dev_err(dev,
-				"Atmel regulator disable for vddio failed: %d\n", ret);
-			}
-		}
-
-		data->is_stopped = 1;
-
-		mutex_unlock(&input_dev->mutex);
-	} else {
-		if (!data->wakeup_gesture_mode)
+// 	if (data->pdata->cut_off_power) {
+// 		/* In the power is cut off with LCD off, wake up gesture can not be used */
+// 		mutex_lock(&input_dev->mutex);
+// 
+// 		if (data->is_stopped) {
+// 			mutex_unlock(&input_dev->mutex);
+// 			return 0;
+// 		}
+// 
+// 		mxt_disable_irq(data);
+// 		gpio_set_value(data->pdata->reset_gpio, 0);
+// 
+// 		mxt_clear_touch_event(data);
+// 
+// 		if (data->regulator_vdd && data->regulator_avdd && data->regulator_vddio) {
+// 			ret = regulator_disable(data->regulator_avdd);
+// 			if (ret < 0) {
+// 				dev_err(dev,
+// 				"Atmel regulator disable for avdd failed: %d\n", ret);
+// 			}
+// 			ret = regulator_disable(data->regulator_vdd);
+// 			if (ret < 0) {
+// 				dev_err(dev,
+// 				"Atmel regulator disable for vdd failed: %d\n", ret);
+// 			}
+// 
+// 			ret = regulator_disable(data->regulator_vddio);
+// 			if (ret < 0) {
+// 				dev_err(dev,
+// 				"Atmel regulator disable for vddio failed: %d\n", ret);
+// 			}
+// 		}
+// 
+// 		data->is_stopped = 1;
+// 
+// 		mutex_unlock(&input_dev->mutex);
+// 	} else {
+		if (!data->wakeup_gesture_mode) {
 			mxt_disable_irq(data);
+                } else {
+                    enable_irq_wake(data->client->irq);
+                    mxt_disable_irq(data);
+                }
 
 		mutex_lock(&input_dev->mutex);
 
@@ -4737,7 +4746,7 @@ static int mxt_suspend(struct device *dev)
 				"Atmel regulator disable for vddio failed: %d\n", ret);
 			}
 		}
-	}
+//}
 
 
 	return 0;
@@ -4750,41 +4759,45 @@ static int mxt_resume(struct device *dev)
 	struct mxt_data *data = i2c_get_clientdata(client);
 	struct input_dev *input_dev = data->input_dev;
 
-	if (data->pdata->cut_off_power) {
-		mutex_lock(&input_dev->mutex);
-
-		if (!data->is_stopped) {
-			mutex_unlock(&input_dev->mutex);
-			return 0;
-		}
-
-		if (data->regulator_vdd && data->regulator_avdd && data->regulator_vddio) {
-			ret = regulator_enable(data->regulator_vdd);
-			if (ret < 0) {
-				dev_err(dev,
-				"Atmel regulator enable for vdd failed: %d\n", ret);
-			}
-			ret = regulator_enable(data->regulator_avdd);
-			if (ret < 0) {
-				dev_err(dev,
-				"Atmel regulator enable for avdd failed: %d\n", ret);
-			}
-			ret = regulator_enable(data->regulator_vddio);
-			if (ret < 0) {
-				dev_err(dev,
-				"Atmel regulator enable for vddio failed: %d\n", ret);
-			}
-		}
-
-		mxt_wait_for_chg(data);
-		mxt_enable_irq(data);
-		schedule_delayed_work(&data->calibration_delayed_work, msecs_to_jiffies(100));
-		data->is_stopped = false;
-
-		mutex_unlock(&input_dev->mutex);
-	} else {
-		if (!data->wakeup_gesture_mode)
+// 	if (data->pdata->cut_off_power) {
+// 		mutex_lock(&input_dev->mutex);
+// 
+// 		if (!data->is_stopped) {
+// 			mutex_unlock(&input_dev->mutex);
+// 			return 0;
+// 		}
+// 
+// 		if (data->regulator_vdd && data->regulator_avdd && data->regulator_vddio) {
+// 			ret = regulator_enable(data->regulator_vdd);
+// 			if (ret < 0) {
+// 				dev_err(dev,
+// 				"Atmel regulator enable for vdd failed: %d\n", ret);
+// 			}
+// 			ret = regulator_enable(data->regulator_avdd);
+// 			if (ret < 0) {
+// 				dev_err(dev,
+// 				"Atmel regulator enable for avdd failed: %d\n", ret);
+// 			}
+// 			ret = regulator_enable(data->regulator_vddio);
+// 			if (ret < 0) {
+// 				dev_err(dev,
+// 				"Atmel regulator enable for vddio failed: %d\n", ret);
+// 			}
+// 		}
+// 
+// 		mxt_wait_for_chg(data);
+// 		mxt_enable_irq(data);
+// 		schedule_delayed_work(&data->calibration_delayed_work, msecs_to_jiffies(100));
+// 		data->is_stopped = false;
+// 
+// 		mutex_unlock(&input_dev->mutex);
+// 	} else {
+		if (!data->wakeup_gesture_mode) {
 			mxt_enable_irq(data);
+                } else {
+                    disable_irq_wake(data->client->irq);
+                    mxt_enable_irq(data);
+                }
 
 		if (data->regulator_vdd && data->regulator_avdd && data->regulator_vddio) {
 			ret = regulator_enable(data->regulator_vdd);
@@ -4810,7 +4823,7 @@ static int mxt_resume(struct device *dev)
 			mxt_start(data);
 
 		mutex_unlock(&input_dev->mutex);
-	}
+// 	}
 	return 0;
 }
 
@@ -4907,6 +4920,9 @@ static int mxt_initialize_input_device(struct mxt_data *data)
 	input_dev->open = mxt_input_open;
 	input_dev->close = mxt_input_close;
 	input_dev->event = mxt_input_event;
+//         data->input_dev->enable = mxt_input_enable;
+// 	data->input_dev->disable = mxt_input_disable;
+// 	data->input_dev->enabled = true;
 
 	__set_bit(EV_ABS, input_dev->evbit);
 	__set_bit(EV_KEY, input_dev->evbit);
@@ -4965,7 +4981,7 @@ static int mxt_initialize_input_device(struct mxt_data *data)
 
 	data->input_dev = input_dev;
 
-	configure_sleep(data);
+// 	configure_sleep(data);
 
 	return 0;
 }
@@ -5612,6 +5628,7 @@ static int mxt_ts_suspend(struct device *dev)
 			data->wakeup_gesture_mode) {
 		dev_info(dev, "touch enable irq wake\n");
 		mxt_disable_irq(data);
+//                 mxt_suspend(dev);
 		enable_irq_wake(data->client->irq);
 	}
 
@@ -5627,17 +5644,13 @@ static int mxt_ts_resume(struct device *dev)
 		dev_info(dev, "touch disable irq wake\n");
 		disable_irq_wake(data->client->irq);
 		mxt_enable_irq(data);
+//                 mxt_resume(dev);
 	}
 
 	return 0;
 }
 
-static const struct dev_pm_ops mxt_touchscreen_pm_ops = {
-#ifndef CONFIG_HAS_EARLYSUSPEND
-	.suspend        = mxt_ts_suspend,
-	.resume         = mxt_ts_resume,
-#endif
-};
+static SIMPLE_DEV_PM_OPS(mxt_touchscreen_pm_ops, mxt_suspend, mxt_resume);
 #endif
 
 static const struct i2c_device_id mxt_id[] = {
@@ -5662,9 +5675,7 @@ static struct i2c_driver mxt_driver = {
 		.name	= "atmel_mxt_ts_640t",
 		.owner	= THIS_MODULE,
 		.of_match_table = mxt_match_table,
-#ifdef CONFIG_PM
 		.pm = &mxt_touchscreen_pm_ops,
-#endif
 	},
 	.probe		= mxt_probe,
 	.remove		= __devexit_p(mxt_remove),
