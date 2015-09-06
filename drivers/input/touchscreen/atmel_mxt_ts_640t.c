@@ -4591,7 +4591,7 @@ static void mxt_start(struct mxt_data *data)
 	int error;
 	struct device *dev = &data->client->dev;
 
-	if (data->wakeup_gesture_mode && !in_phone_call()) {
+	if (data->wakeup_gesture_mode) {
 		mxt_set_gesture_wake_up(data, false);
 		if (!data->is_wakeup_by_gesture)
 			mxt_set_t7_for_gesture(data, false);
@@ -4619,7 +4619,7 @@ static void mxt_stop(struct mxt_data *data)
 	int error;
 	struct device *dev = &data->client->dev;
 
-	if (data->wakeup_gesture_mode && !in_phone_call()) {
+	if (data->wakeup_gesture_mode) {
 		data->is_wakeup_by_gesture = false;
 		mxt_set_t7_for_gesture(data, true);
 		mxt_set_gesture_wake_up(data, true);
@@ -4717,7 +4717,6 @@ static int mxt_suspend(struct device *dev)
 			mxt_disable_irq(data);
                 } else {
                     enable_irq_wake(data->client->irq);
-                    mxt_disable_irq(data);
                 }
 
 		mutex_lock(&input_dev->mutex);
@@ -4792,11 +4791,8 @@ static int mxt_resume(struct device *dev)
 // 
 // 		mutex_unlock(&input_dev->mutex);
 // 	} else {
-		if (!data->wakeup_gesture_mode) {
-			mxt_enable_irq(data);
-                } else {
+		if (data->wakeup_gesture_mode) {
                     disable_irq_wake(data->client->irq);
-                    mxt_enable_irq(data);
                 }
 
 		if (data->regulator_vdd && data->regulator_avdd && data->regulator_vddio) {
