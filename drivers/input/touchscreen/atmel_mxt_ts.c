@@ -23,7 +23,6 @@
 #include <linux/input/mt.h>
 #include <linux/interrupt.h>
 #include <linux/slab.h>
-// #include <linux/pm_runtime.h>
 #include <linux/pm_wakeup.h>
 #include <linux/input/wake_helpers.h>
 #include <linux/regulator/consumer.h>
@@ -31,6 +30,12 @@
 #include <linux/string.h>
 #include <linux/of_gpio.h>
 #include <asm/bootinfo.h>
+#include <mach/gpiomux.h>
+#include <linux/input/doubletap2wake.h>
+#if defined(CONFIG_FB)
+#include <linux/notifier.h>
+#include <linux/fb.h>
+#endif
 
 /* Version */
 #define MXT_VER_20		20
@@ -599,6 +604,8 @@ struct mxt_data {
         bool is_suspended;
         bool is_resumed;
         bool irq_enabled;
+	bool screen_off;
+	bool in_deepsleep;
 
 
 
@@ -637,6 +644,11 @@ struct mxt_data {
 	u8 T100_reportid_min;
 	u8 T100_reportid_max;
 	u8 T102_reportid;
+        
+#if defined(CONFIG_FB)
+	struct notifier_block fb_notif;
+#endif
+
 };
 
 static struct mxt_suspend mxt_save[] = {
@@ -870,8 +882,6 @@ static int mxt_chip_reset(struct mxt_data *data);
 static int mxt_read_reg(struct i2c_client *client,
 			u16 reg, u16 len, void *val)
 {
-	struct device *dev = &client->dev;
-	struct mxt_data *data =  i2c_get_clientdata(client);
 	struct i2c_msg xfer[2];
 	u8 buf[2];
 	int ret;
@@ -1723,7 +1733,7 @@ static void mxt_proc_t15_messages(struct mxt_data *data, u8 *msg)
 	unsigned long keystates = le32_to_cpu(msg[2]);
 	int index = data->current_index;
 
-	if(data->keys_off) {
+	if(data->screen_off) {
 		return;
 	}
 
@@ -2320,6 +2330,7 @@ static int mxt_set_power_cfg(struct mxt_data *data, u8 mode)
 					mxt_save[i].suspend_obj,
 					mxt_save[i].suspend_reg,
 					mxt_save[i].suspend_val);
+				data->in_deepsleep=true;
 		}
 		break;
 
@@ -3407,6 +3418,22 @@ static ssize_t mxt_update_fw_show(struct device *dev,
 	return count;
 }
 
+static void mxt_enable_irq(struct mxt_data *data) {
+
+	if (!data->irq_enabled) {
+		mxt_enable_irq(data);
+		data->irq_enabled=true;
+	}
+}
+
+static void mxt_disable_irq(struct mxt_data *data) {
+	
+	if(data->irq_enabled) {
+		disable_irq(data->irq);
+		data->irq_enabled=false;
+	}
+}
+
 static ssize_t mxt_update_fw_store(struct device *dev,
 					struct device_attribute *attr,
 					const char *buf, size_t count)
@@ -3433,8 +3460,7 @@ static ssize_t mxt_update_fw_store(struct device *dev,
 	}
 
 	dev_info(dev, "Identify firmware name :%s \n", fw_name);
-	disable_irq(data->irq);
-        data->irq_enabled=false;
+	mxt_disable_irq(data);
 
 	error = mxt_load_fw(dev, fw_name);
 	if (error) {
@@ -3455,8 +3481,7 @@ static ssize_t mxt_update_fw_store(struct device *dev,
 	}
 
 	if (data->state == APPMODE) {
-		enable_irq(data->irq);
-                data->irq_enabled=true;
+		mxt_enable_irq(data);
 	}
 
 	kfree(fw_name);
@@ -4887,9 +4912,12 @@ static void mxt_start(struct mxt_data *data)
 	if (data->is_stopped == 0)
 		return;
 
-	error = mxt_set_power_cfg(data, MXT_POWER_CFG_RUN);
+	if (data->in_deepsleep){
+		error = mxt_set_power_cfg(data, MXT_POWER_CFG_RUN);
 	if (error)
+            dev_warn(dev, "MXT start error\n");
 		return;
+	}
 
 	if (mxt_read_and_check_calib_msg(data))
 		queue_delayed_work(data->work_queue, &data->update_setting_delayed_work, HZ);
@@ -4906,7 +4934,6 @@ static void mxt_stop(struct mxt_data *data)
 
 	if (data->is_stopped)
 		return;
-
         
             error = mxt_set_power_cfg(data, MXT_POWER_CFG_DEEPSLEEP);
 
@@ -4949,7 +4976,7 @@ static void mxt_clear_touch_event(struct mxt_data *data)
  static int mxt_suspend(struct device *dev)
  {
 
-        dev_warn(dev, "Entering suspend\n");
+
         int ret;
         struct i2c_client *client = to_i2c_client(dev);
         struct mxt_data *data = i2c_get_clientdata(client);
@@ -4960,35 +4987,29 @@ static void mxt_clear_touch_event(struct mxt_data *data)
             return 0;
         }
         
-//         dev_warn(dev, "disabling irq\n");
-// 	
         
         if (dt2w_switch == 1 && !in_phone_call()) {
             dev_warn(dev, "Enabling irq wake\n");
-            enable_irq_wake(client->irq); 
+            enable_irq_wake(client->irq);
+            data->is_stopped = 1;
         } else {
-                disable_irq(client->irq);
-                data->irq_enabled=false;
+                mxt_disable_irq(data);
+                data->safe_count = 0;
+                cancel_delayed_work_sync(&data->disable_anticalib_delayed_work);
+                mutex_lock(&input_dev->mutex);
+                if (input_dev->users)
+                    mxt_stop(data);
+                mutex_unlock(&input_dev->mutex);
         }
         
         
-	data->safe_count = 0;
-// 	cancel_delayed_work_sync(&data->update_setting_delayed_work);
-// 	cancel_delayed_work_sync(&data->disable_anticalib_delayed_work);
-// 	mxt_adjust_self_setting(data, true, TYPE_SELF_THR);
-// 	mxt_adjust_self_setting(data, true, TYPE_SELF_INTTHR_SUSPEND);
-// 	mxt_anti_calib_control(data, true);
-// 	mxt_self_recalib_control(data, true);
-        dev_warn(dev, "anticalib complete\n");
-        
-        if (dt2w_switch == 0 || in_phone_call()) {
-            mutex_lock(&input_dev->mutex);
-            if (input_dev->users)
-		mxt_stop(data);
-            mutex_unlock(&input_dev->mutex);
-            dev_warn(dev, "stopping touch\n");
-        }
-        
+	
+ 	cancel_delayed_work_sync(&data->update_setting_delayed_work);
+ 	mxt_adjust_self_setting(data, true, TYPE_SELF_THR);
+ 	mxt_adjust_self_setting(data, true, TYPE_SELF_INTTHR_SUSPEND);
+ 	mxt_anti_calib_control(data, true);
+ 	mxt_self_recalib_control(data, true);
+
  	mxt_clear_touch_event(data);
 
 	if (data->regulator_vdd && data->regulator_avdd) {
@@ -5005,10 +5026,9 @@ static void mxt_clear_touch_event(struct mxt_data *data)
             dev_warn(dev, "regulators disabled\n");
 	}
 
- 	data->land_signed = 0;
+	data->land_signed = 0;
  	data->self_restore_done = 0;
         data->is_suspended = true;
-        data->is_resumed = false;
 	return 0;
 }
 
@@ -5025,7 +5045,7 @@ static int mxt_resume(struct device *dev)
 	struct mxt_data *data = i2c_get_clientdata(client);
 	struct input_dev *input_dev = data->input_dev;
         dev_warn(dev, "Entering resume\n");
-        if (data->is_resumed) {
+        if (!data->is_suspended) {
             return 0;
         }
 	if (data->regulator_vdd && data->regulator_avdd) {
@@ -5041,29 +5061,18 @@ static int mxt_resume(struct device *dev)
 		}
 	}
 
-//         mxt_soft_reset(data, MXT_RESET_VALUE);
-//         mxt_chip_reset(data);
-
-        
             mutex_lock(&input_dev->mutex);
             if (input_dev->users)
                 mxt_start(data);
-            dev_warn(dev, "Enabling touch\n");
             mutex_unlock(&input_dev->mutex);
-        
+         
         if (dt2w_switch == 1 && !in_phone_call()) {
             disable_irq_wake(client->irq);
             dev_warn(dev, "disabling irq wake\n");
         } 
-        if (!data->irq_enabled) {
-            enable_irq(client->irq);
-            data->irq_enabled = true;
-        }
+       
+	mxt_enable_irq(data);
         
-        
-// 	
-//         dev_warn(dev, "Enabling irq \n");
-        data->is_resumed = true;
         data->is_suspended = false;
 	return 0;
 }
@@ -5092,14 +5101,12 @@ static int mxt_input_disable(struct input_dev *in_dev)
 	return error;
 }
 
-
 #ifdef CONFIG_FB
 static int fb_notifier_cb(struct notifier_block *self,
 			unsigned long event, void *data)
 {
 	struct fb_event *evdata = data;
 	int *blank;
-        struct device *dev;
 	struct mxt_data *mxt_data =
 		container_of(self, struct mxt_data, fb_notif);
 
@@ -5108,6 +5115,7 @@ static int fb_notifier_cb(struct notifier_block *self,
 		switch (*blank) {
 			case FB_BLANK_UNBLANK:
 			dev_info(&mxt_data->client->dev, "##### UNBLANK SCREEN #####\n");
+			mxt_data->screen_off = false;
 			mxt_input_enable(mxt_data->input_dev);
                         break;
                         case FB_BLANK_POWERDOWN:
@@ -5115,6 +5123,7 @@ static int fb_notifier_cb(struct notifier_block *self,
 			case FB_BLANK_VSYNC_SUSPEND:
 			case FB_BLANK_NORMAL: 
 			dev_info(&mxt_data->client->dev, "##### BLANK SCREEN #####\n");
+			mxt_data->screen_off = true;
 			mxt_input_disable(mxt_data->input_dev);
                         break;
 		}
@@ -5141,8 +5150,8 @@ static void configure_sleep(struct mxt_data *data)
 	data->input_dev->disable = mxt_input_disable;
 	data->input_dev->enabled = true;
 }
-#endif
 
+#endif
 
 static int mxt_initialize_input_device(struct mxt_data *data)
 {
@@ -5219,7 +5228,7 @@ static int mxt_initialize_input_device(struct mxt_data *data)
 		}
 	}
 
-	input_set_drvdata(input_dev, data);
+        input_set_drvdata(input_dev, data);
 
 	ret = input_register_device(input_dev);
 	if (ret) {
@@ -5229,6 +5238,8 @@ static int mxt_initialize_input_device(struct mxt_data *data)
 	}
 
 	data->input_dev = input_dev;
+
+ 	configure_sleep(data);
 
 	return 0;
 }
@@ -5824,6 +5835,8 @@ static int __devinit mxt_probe(struct i2c_client *client,
 		goto err_free_input_device;
 	}
 
+	data->irq_enabled = true;
+
 	error = sysfs_create_group(&client->dev.kobj, &mxt_attr_group);
 	if (error) {
 		dev_err(&client->dev, "Failure %d creating sysfs group\n",
@@ -5844,6 +5857,11 @@ static int __devinit mxt_probe(struct i2c_client *client,
 			data->mem_access_attr.attr.name);
 		goto err_remove_sysfs_group;
 	}
+	
+        
+        error = device_init_wakeup(&client->dev, 1);
+        if (error)
+            dev_warn(&data->client->dev, "device_init_wakeup failed\n");
 
 	mxt_debugfs_init(data);
 
@@ -5856,8 +5874,9 @@ static int __devinit mxt_probe(struct i2c_client *client,
 
 	queue_work(data->work_queue, &data->pre_use_work);
 	data->init_complete = true;
-        dt2w_switch = 1;
-
+        data->is_suspended = false;
+	data->screen_off = false;
+	data->in_deepsleep = false;
 	return 0;
 
 err_remove_sysfs_group:
@@ -5933,8 +5952,7 @@ static void mxt_shutdown(struct i2c_client *client)
 {
 	struct mxt_data *data = i2c_get_clientdata(client);
 
-	disable_irq(data->irq);
-        data->irq_enabled=false;
+	mxt_disable_irq(data);
 	data->state = SHUTDOWN;
 }
 
