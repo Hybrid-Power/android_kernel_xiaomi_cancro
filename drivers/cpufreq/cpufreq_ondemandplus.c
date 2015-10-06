@@ -159,8 +159,168 @@ static inline cputime64_t get_cpu_idle_time_jiffy(unsigned int cpu,
         return jiffies_to_usecs(idle_time);
 }
 
+static inline cputime64_t get_cpu_idle_time(unsigned int cpu,
+                                            cputime64_t *wall)
+{
+        u64 idle_time = get_cpu_idle_time_us(cpu, wall);
 
-} else {
+        if (idle_time == -1ULL)
+                idle_time = get_cpu_idle_time_jiffy(cpu, wall);        
+        else if (io_is_busy == 2)
+                idle_time += (get_cpu_iowait_time_us(cpu, wall) / 2);
+        else if (!io_is_busy)
+                idle_time += get_cpu_iowait_time_us(cpu, wall);
+
+        return idle_time;
+}
+
+static void cpufreq_ondemandplus_timer(unsigned long data)
+{
+        unsigned int delta_idle;
+        unsigned int delta_time;
+        int cpu_load;
+        unsigned int load_freq;
+        int load_since_change;
+        u64 time_in_idle;
+        u64 idle_exit_time;
+        struct cpufreq_ondemandplus_cpuinfo *pcpu =
+                &per_cpu(cpuinfo, data);
+        u64 now_idle;
+        unsigned int new_freq;
+        unsigned int index;
+        static unsigned int stay_counter;
+        unsigned long flags;
+
+        smp_rmb();
+
+        if (!pcpu->governor_enabled)
+                goto exit;
+
+        /*
+         * Once pcpu->timer_run_time is updated to >= pcpu->idle_exit_time,
+         * this lets idle exit know the current idle time sample has
+         * been processed, and idle exit can generate a new sample and
+         * re-arm the timer.  This prevents a concurrent idle
+         * exit on that CPU from writing a new set of info at the same time
+         * the timer function runs (the timer function can't use that info
+         * until more time passes).
+         */
+
+        time_in_idle = pcpu->time_in_idle;
+        idle_exit_time = pcpu->idle_exit_time;
+        now_idle = get_cpu_idle_time(data, &pcpu->timer_run_time);
+        smp_wmb();
+
+        /* If we raced with cancelling a timer, skip. */
+        if (!idle_exit_time)
+                goto exit;
+
+        delta_idle = (unsigned int) (now_idle - time_in_idle);
+        delta_time = (unsigned int) (pcpu->timer_run_time - idle_exit_time);
+
+        /*
+         * If timer ran less than 1ms after short-term sample started, retry.
+         */
+        if (delta_time < 1000)
+                goto rearm;
+
+        if (delta_idle > delta_time)
+                cpu_load = 0;
+        else
+                cpu_load = 100 * (delta_time - delta_idle) / delta_time;
+
+        delta_idle = (unsigned int) (now_idle -        pcpu->target_set_time_in_idle);
+        delta_time = (unsigned int) (pcpu->timer_run_time - pcpu->target_set_time);
+
+        if ((delta_time == 0) || (delta_idle > delta_time))
+                load_since_change = 0;
+        else
+                load_since_change =
+                        100 * (delta_time - delta_idle) / delta_time;
+
+        /*
+         * If short-term load (since last idle timer started or
+         * timer function re-armed itself) is higher than long-term 
+         * load (since last frequency change), use short-term load
+         * to be able to scale up quickly.
+         * When long-term load is higher than short-term load, 
+         * use the average of short-term load and long-term load
+         * (instead of just long-term load) to be able to scale
+         * down faster, with the long-term load being able to delay 
+         * down scaling a little to maintain responsiveness.
+         */
+        if (load_since_change > cpu_load) {
+                cpu_load = (cpu_load + load_since_change) / 2;
+        }
+
+        load_freq = cpu_load * pcpu->target_freq;
+
+        new_freq = pcpu->target_freq;
+
+        /* suspended scaling behavior */
+        if (allowed_max == suspend_frequency) {
+                if (stay_counter) {
+                        stay_counter = 0;
+                }
+                
+                /* Check for frequency increase */
+                if (load_freq > up_threshold * pcpu->target_freq) {
+                        /* if we are already at full speed then break out early */
+                        if (pcpu->target_freq < suspend_frequency) {
+                                
+                                new_freq = pcpu->target_freq + pcpu->policy->max / 10;
+
+                                if (new_freq > suspend_frequency) {
+                                        new_freq = suspend_frequency;
+                                }
+                                
+                                cpufreq_frequency_table_target(pcpu->policy, pcpu->freq_table, new_freq,
+                                                CPUFREQ_RELATION_L, &index);
+                                
+                                new_freq = pcpu->freq_table[index].frequency;
+                        }
+
+                /* Check for frequency decrease */
+
+                /*
+                * The optimal frequency is the frequency that is the lowest that
+                * can support the current CPU usage without triggering the up
+                * policy. To be safe, we focus 10 points under the threshold.
+                */
+                } else if (load_freq < (up_threshold - down_differential) *
+                                pcpu->target_freq) {
+                        /* if we are already at full speed then break out early */
+                        if (pcpu->target_freq != pcpu->policy->min) {
+
+                                new_freq = pcpu->target_freq - pcpu->policy->max / 10;
+
+                                if (new_freq < pcpu->policy->min) {
+                                        new_freq = pcpu->policy->min;
+                                }
+                        
+                                cpufreq_frequency_table_target(pcpu->policy, pcpu->freq_table, new_freq,
+                                                CPUFREQ_RELATION_H, &index);
+                                
+                                new_freq = pcpu->freq_table[index].frequency;
+                        }
+                }
+        /* screen-on scaling behavior */
+        } else {
+                /* Check for frequency increase */
+                if (load_freq > up_threshold * pcpu->target_freq) {
+                        /* if we are already at full speed then break out early */
+                        if (pcpu->target_freq < pcpu->policy->max) {
+
+                                if (stay_counter == 0 && inter_staycycles != 0) {
+                                        new_freq = inter_lofreq;
+                                        stay_counter++;
+                                } else if (stay_counter == 1 && inter_staycycles != 1) {
+                                        new_freq = inter_hifreq;
+                                        stay_counter++;
+                                } else if (stay_counter < inter_staycycles) {
+                                        stay_counter++;
+                                        goto rearm;
+                                } else {
                                         new_freq = pcpu->policy->max;
                                 }
                         }
