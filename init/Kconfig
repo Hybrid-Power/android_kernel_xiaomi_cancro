@@ -961,6 +961,8 @@ config CC_OPTIMIZE_FOR_SIZE
 	  resulting in a smaller kernel.
 
 	  If unsure, say Y.
+config CC_OPTIMIZE_MORE
+         bool "Optimize more"
 
 config SYSCTL
 	bool
