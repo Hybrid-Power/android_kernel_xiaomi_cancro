@@ -8334,8 +8334,7 @@ int hdd_wlan_startup(struct device *dev )
    // Get mac addr from platform driver
    ret = wcnss_get_wlan_mac_address((char*)&mac_addr.bytes);
 
-   if (mac!=NULL)
-	   memcpy((char*)&mac_addr.bytes, mac, 6);
+   //memcpy((char*)&mac_addr.bytes, mac, 6);
 
    if ((!vos_is_macaddr_zero(&mac_addr)))
    {
@@ -8837,7 +8836,9 @@ static int hdd_driver_init( void)
 #ifdef HAVE_WCNSS_CAL_DOWNLOAD
    int max_retries = 0;
 #endif
-
+#ifdef HAVE_CBC_DONE
+   int max_cbc_retries = 0;
+#endif
 #ifdef WCONN_TRACE_KMSG_LOG_BUFF
    vos_wconn_trace_init();
 #endif
@@ -8883,6 +8884,15 @@ static int hdd_driver_init( void)
       wake_lock_destroy(&wlan_wake_lock);
 #endif
       return -ENODEV;
+   }
+#endif
+
+#ifdef HAVE_CBC_DONE
+   while (!wcnss_cbc_complete() && 10 >= ++max_cbc_retries) {
+       msleep(1000);
+   }
+   if (max_cbc_retries >= 10) {
+      hddLog(VOS_TRACE_LEVEL_FATAL, "%s:CBC not completed", __func__);
    }
 #endif
 
@@ -9053,9 +9063,10 @@ static void hdd_driver_exit(void)
          }
        }
 
+      rtnl_lock();
       pHddCtx->isLoadUnloadInProgress = WLAN_HDD_UNLOAD_IN_PROGRESS;
       vos_set_load_unload_in_progress(VOS_MODULE_ID_VOSS, TRUE);
-
+      rtnl_unlock();
       //Do all the cleanup before deregistering the driver
       hdd_wlan_exit(pHddCtx);
    }
