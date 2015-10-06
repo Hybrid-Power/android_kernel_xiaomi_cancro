@@ -569,7 +569,7 @@ KBUILD_CFLAGS += -O2
 endif
 
 ifdef CONFIG_CC_OPTIMIZE_MORE
-KBUILD_CFLAGS += -O3 -g0 -fmodulo-sched -fmodulo-sched-allow-regmoves -fno-tree-vectorize -Wno-array-bounds -fivopts -fno-inline-functions
+KBUILD_CFLAGS += -O3 -g0 -fno-tree-vectorize -Wno-array-bounds -fivopts -fno-inline-functions
 endif
 
 include $(srctree)/arch/$(SRCARCH)/Makefile
