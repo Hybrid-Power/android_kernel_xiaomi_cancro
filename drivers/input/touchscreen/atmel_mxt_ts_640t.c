@@ -742,7 +742,7 @@ static int mxt_bootloader_read(struct mxt_data *data, u8 *val, unsigned int coun
 
 
 static int mxt_prevent_sleep (void) {
-	if ((dt2w_switch == 1 && s2w_switch > 0) || mxt_shared_data->wakeup_gesture_mode) {
+	if (dt2w_switch == 1 || s2w_switch > 0 || mxt_shared_data->wakeup_gesture_mode) {
 		return 1;
 	} else {
 		return 0;
