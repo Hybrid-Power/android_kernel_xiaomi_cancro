@@ -742,7 +742,7 @@ static int mxt_bootloader_read(struct mxt_data *data, u8 *val, unsigned int coun
 
 
 static int mxt_prevent_sleep (void) {
-	if (dt2w_switch == 1 || s2w_switch > 0 || mxt_shared_data->wakeup_gesture_mode) {
+	if (dt2w_switch == 1 || s2w_switch > 0) {
 		return 1;
 	} else {
 		return 0;
@@ -4597,7 +4597,7 @@ static void mxt_start(struct mxt_data *data)
 	int error;
 	struct device *dev = &data->client->dev;
 
-	if (mxt_prevent_sleep()) {
+	if (data->wakeup_gesture_mode) {
 		mxt_set_gesture_wake_up(data, false);
 		mxt_enable_gesture_mode(data);
 		if (!data->is_wakeup_by_gesture)
@@ -4607,9 +4607,11 @@ static void mxt_start(struct mxt_data *data)
 	} else {
 		if (data->is_stopped == 0)
 			return;
-		error = mxt_set_power_cfg(data, MXT_POWER_CFG_RUN);
-		if (error)
-			return;
+		if (!mxt_prevent_sleep()) {
+			error = mxt_set_power_cfg(data, MXT_POWER_CFG_RUN);
+			if (error)
+				return;
+		}
 		/* At this point, it may be necessary to clear state
 		 * by disabling/re-enabling the noise suppression object */
 
@@ -4625,7 +4627,7 @@ static void mxt_stop(struct mxt_data *data)
 	int error;
 	struct device *dev = &data->client->dev;
 
-	if (mxt_prevent_sleep()) {
+	if (data->wakeup_gesture_mode) {
 		data->is_wakeup_by_gesture = false;
 		mxt_set_t7_for_gesture(data, true);
 		mxt_set_gesture_wake_up(data, true);
@@ -4636,9 +4638,11 @@ static void mxt_stop(struct mxt_data *data)
 			return;
 
 		cancel_delayed_work_sync(&data->calibration_delayed_work);
-		error = mxt_set_power_cfg(data, MXT_POWER_CFG_DEEPSLEEP);
-		if (!error)
-			dev_dbg(dev, "MXT suspended\n");
+		if (!mxt_prevent_sleep()) {
+			error = mxt_set_power_cfg(data, MXT_POWER_CFG_DEEPSLEEP);
+			if (!error)
+				dev_dbg(dev, "MXT suspended\n");
+		}
 	}
 }
 
@@ -5635,8 +5639,7 @@ static int mxt_ts_suspend(struct device *dev)
 {
 	struct mxt_data *data =  dev_get_drvdata(dev);
 
-	if (device_may_wakeup(dev) &&
-			mxt_prevent_sleep()) {
+	if (mxt_prevent_sleep()) {
 		dev_info(dev, "touch enable irq wake\n");
 		mxt_disable_irq(data);
 		enable_irq_wake(data->client->irq);
@@ -5649,8 +5652,7 @@ static int mxt_ts_resume(struct device *dev)
 {
 	struct mxt_data *data =  dev_get_drvdata(dev);
 
-	if (device_may_wakeup(dev) &&
-			mxt_prevent_sleep()) {
+	if (mxt_prevent_sleep()) {
 		dev_info(dev, "touch disable irq wake\n");
 		disable_irq_wake(data->client->irq);
 		mxt_enable_irq(data);
