@@ -352,6 +352,9 @@ static struct devfreq_governor msm_adreno_tz = {
 
 static int __init msm_adreno_tz_init(void)
 {
+#ifdef CONFIG_POWERSUSPEND
+	register_power_suspend(&tz_power_suspend);
+#endif
 	return devfreq_add_governor(&msm_adreno_tz);
 }
 subsys_initcall(msm_adreno_tz_init);
