@@ -114,29 +114,7 @@ config CPU_FREQ_DEFAULT_GOV_INTERACTIVE
 	  loading your cpufreq low-level hardware driver, using the
 	  'interactive' governor for latency-sensitive workloads.
 
-config CPU_FREQ_DEFAULT_GOV_ZZMOOVE
-          bool "zzmoove"
-          select CPU_FREQ_GOV_ZZMOOVE
-          select CPU_FREQ_GOV_PERFORMANCE
-          help
-          Use the CPUFreq governor 'zzmoove' as default, using predefined
-          frequency lookup tables and optimized scaling triggers instead of
-          % frequency steps to get smooth up/downscaling dependant on CPU load.
-
-config CPU_FREQ_DEFAULT_GOV_ONDEMANDPLUS
-	bool "ondemandplus"
-	select CPU_FREQ_GOV_ONDEMANDPLUS
-	help
-	Use the CPUFreq governor 'ondemandplus' as default.
-
-config CPU_FREQ_DEFAULT_GOV_HELLSACTIVE
-	bool "hellsactive"
-	select CPU_FREQ_GOV_HELLSACTIVE
-	help
-	  Use the CPUFreq governor 'hellsactive' as default. This allows
-	  you to get a full dynamic cpu frequency capable system by simply
-	  loading your cpufreq low-level hardware driver, using the
-	  'interactive' governor for latency-sensitive workloads.
+endchoice
 
 config CPU_FREQ_GOV_PERFORMANCE
 	tristate "'performance' governor"
@@ -245,40 +223,6 @@ config CPU_BOOST
 	  various events that might occur in the system. As of now, the
 	  events it reacts to are:
 	  - Migration of important threads from one CPU to another.
-
-	  If in doubt, say N.
-
-config CPU_FREQ_GOV_ZZMOOVE
-        tristate "'zzmoove' cpufreq governor"
-        depends on CPU_FREQ
-        help
-          'zzmoove' - based on cpufreq_conservative, using predefined
-          frequency lookup tables and optimized scaling triggers instead of
-          % frequency steps to get smooth up/downscaling dependant on CPU load.
-          If in doubt, say N.
-
-
-	  
-config CPU_FREQ_GOV_ONDEMANDPLUS
-	tristate "'ondemandplus' cpufreq governor"
-	depends on CPU_FREQ	  
-            
-	tristate "Generic CPU0 cpufreq driver"
-
-config CPU_FREQ_GOV_HELLSACTIVE
-	tristate "'hellsactive' cpufreq policy governor"
-	help
-	  'hellsactive' - This driver adds a dynamic cpufreq policy governor
-	  designed for latency-sensitive workloads.
-
-	  This governor attempts to reduce the latency of clock
-	  increases so that the system is more responsive to
-	  interactive workloads.
-
-	  To compile this driver as a module, choose M here: the
-	  module will be called cpufreq_interactive.
-
-	  For details, take a look at linux/Documentation/cpu-freq.
 
 	  If in doubt, say N.
 
