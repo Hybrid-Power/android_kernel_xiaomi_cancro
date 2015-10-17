@@ -1200,16 +1200,16 @@ static int mdss_fb_fbmem_ion_mmap(struct fb_info *info,
 	if (page) {
 		for_each_sg(table->sgl, sg, table->nents, i) {
 			unsigned long remainder = vma->vm_end - addr;
-			unsigned long len = sg->length;
+			unsigned long len = sg_dma_len(sg);
 
 			page = sg_page(sg);
 
-			if (offset >= sg->length) {
-				offset -= sg->length;
+			if (offset >= sg_dma_len(sg)) {
+				offset -= sg_dma_len(sg);
 				continue;
 			} else if (offset) {
 				page += offset / PAGE_SIZE;
-				len = sg->length - offset;
+				len = sg_dma_len(sg) - offset;
 				offset = 0;
 			}
 			len = min(len, remainder);
