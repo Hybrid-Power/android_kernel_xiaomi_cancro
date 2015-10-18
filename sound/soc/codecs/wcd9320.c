@@ -3336,15 +3336,11 @@ static int taiko_hphl_dac_event(struct snd_soc_dapm_widget *w,
 	case SND_SOC_DAPM_POST_PMD:
 		snd_soc_update_bits(codec, TAIKO_A_CDC_CLK_RDAC_CLK_EN_CTL,
 							0x02, 0x00);
-<<<<<<< HEAD
-		break;
-=======
 #ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
 		var_is_headset_in_use = 0;
 #endif
 		break;
                 
->>>>>>> 520cd85... added dt2w implementation for mi3w.. not all changes might be necessary. i will update accordingly
 	}
 	return 0;
 }
