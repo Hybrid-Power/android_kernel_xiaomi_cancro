@@ -160,7 +160,10 @@ static struct kparam_string fwpath = {
 static char *country_code;
 static int   enable_11d = -1;
 static int   enable_dfs_chan_scan = -1;
-static char *mac;
+
+static unsigned char mac[6];
+module_param_array(mac,byte, NULL, 0644);
+MODULE_PARM_DESC(mac, "WCNSS 3660 mac address");
 
 #ifndef MODULE
 static int wlan_hdd_inited;
@@ -7621,6 +7624,7 @@ static VOS_STATUS hdd_update_config_from_nv(hdd_context_t* pHddCtx)
 
    if (itemIsValid == VOS_TRUE) 
    {
+#if 0
         hddLog(VOS_TRACE_LEVEL_INFO_HIGH," Reading the Macaddress from NV");
       status = vos_nv_readMultiMacAddress((v_U8_t *)&macFromNV[0].bytes[0],
                                           VOS_MAX_CONCURRENCY_PERSONA);
@@ -7631,6 +7635,11 @@ static VOS_STATUS hdd_update_config_from_nv(hdd_context_t* pHddCtx)
          hddLog(VOS_TRACE_LEVEL_ERROR," vos_nv_readMacAddress() failed");
             return VOS_STATUS_E_FAILURE;
         }
+
+#else
+	for (macLoop = 0; macLoop < VOS_MAC_ADDR_SIZE; macLoop++)
+		 macFromNV[0].bytes[macLoop] = mac[macLoop];
+#endif
 
       /* If first MAC is not valid, treat all others are not valid
        * Then all MACs will be got from ini file */
@@ -7644,18 +7653,12 @@ static VOS_STATUS hdd_update_config_from_nv(hdd_context_t* pHddCtx)
       /* Get MAC address from NV, update CFG info */
       for(macLoop = 0; macLoop < VOS_MAX_CONCURRENCY_PERSONA; macLoop++)
       {
-         if(vos_is_macaddr_zero(&macFromNV[macLoop]))
-         {
-            hddLog(VOS_TRACE_LEVEL_ERROR,"not valid MAC from NV for %d", macLoop);
-            /* This MAC is not valid, skip it
-             * This MAC will be got from ini file */
-         }
-         else
-         {
+       
             vos_mem_copy((v_U8_t *)&pHddCtx->cfg_ini->intfMacAddr[macLoop].bytes[0],
-                         (v_U8_t *)&macFromNV[macLoop].bytes[0],
+                         (v_U8_t *)&macFromNV[0].bytes[0],
                    VOS_MAC_ADDR_SIZE);
-         }
+	    if (macLoop != 0)
+		    pHddCtx->cfg_ini->intfMacAddr[macLoop].bytes[0] += 2;
       }
    }
    else
@@ -8334,7 +8337,8 @@ int hdd_wlan_startup(struct device *dev )
    // Get mac addr from platform driver
    ret = wcnss_get_wlan_mac_address((char*)&mac_addr.bytes);
 
-   //memcpy((char*)&mac_addr.bytes, mac, 6);
+//   if (mac!=NULL)
+//	   strcpy((char*)&mac_addr.bytes, mac);
 
    if ((!vos_is_macaddr_zero(&mac_addr)))
    {
@@ -9701,5 +9705,3 @@ module_param(enable_11d, int,
 module_param(country_code, charp,
              S_IRUSR | S_IRGRP | S_IROTH);
 
-module_param(mac, charp,
-	     S_IRUSR | S_IRGRP | S_IROTH);
