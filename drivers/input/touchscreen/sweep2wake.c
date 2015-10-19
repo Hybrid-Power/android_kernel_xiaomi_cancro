@@ -41,7 +41,7 @@
 #include <linux/hrtimer.h>
 
 /* uncomment since no touchscreen defines android touch, do that here */
-#define ANDROID_TOUCH_DECLARED
+//#define ANDROID_TOUCH_DECLARED
 
 /* Version, author, desc, etc */
 #define DRIVER_AUTHOR "Dennis Rassmann <showp1984@gmail.com>"
@@ -59,7 +59,7 @@ MODULE_LICENSE("GPLv2");
 #define S2W_DEFAULT		0
 #define S2W_PWRKEY_DUR          60
 
-#ifdef CONFIG_ARCH_MSM8974
+#ifdef CONFIG_MACH_MSM8974_HAMMERHEAD
 /* Hammerhead aka Nexus 5 */
 #define S2W_Y_MAX               1920
 #define S2W_X_MAX               1080
@@ -90,6 +90,7 @@ MODULE_LICENSE("GPLv2");
 int gestures_switch = S2W_DEFAULT;
 static struct input_dev *gesture_dev;
 extern void gestures_setdev(struct input_dev * input_device);
+extern void set_vibrate(int value);
 int vib_strength = VIB_STRENGTH;
 
 /* Resources */
@@ -130,6 +131,18 @@ static int __init read_s2w_cmdline(char *s2w)
 }
 __setup("s2w=", read_s2w_cmdline);
 
+static void report_gesture(int gest)
+{
+        pwrtrigger_time[1] = pwrtrigger_time[0];
+        pwrtrigger_time[0] = jiffies;	
+
+	if (pwrtrigger_time[0] - pwrtrigger_time[1] < TRIGGER_TIMEOUT)
+		return;
+
+	pr_info(LOGTAG"gesture = %d\n", gest);
+	input_report_rel(gesture_dev, WAKE_GESTURE, gest);
+	input_sync(gesture_dev);
+}
 
 /* PowerKey work func */
 static void sweep2wake_presspwr(struct work_struct * sweep2wake_presspwr_work) {
@@ -153,6 +166,8 @@ static void sweep2wake_pwrtrigger(void) {
 	
 	if (pwrtrigger_time[0] - pwrtrigger_time[1] < TRIGGER_TIMEOUT)
 		return;
+
+	set_vibrate(vib_strength);
 
 	schedule_work(&sweep2wake_presspwr_work);
         return;
@@ -200,7 +215,11 @@ static void detect_sweep2wake_v(int x, int y, bool st)
 						if (y < (nexty - S2W_Y_NEXT)) {
 							if (exec_county && (jiffies - firsty_time < SWEEP_TIMEOUT)) {
 								pr_info(LOGTAG"sweep up\n");
+								if (gestures_switch) {
+									report_gesture(3);
+								} else {
 						                        sweep2wake_pwrtrigger();
+								}
 								exec_county = false;
 							}
 						}
@@ -222,7 +241,11 @@ static void detect_sweep2wake_v(int x, int y, bool st)
 						if (y > (nexty + S2W_Y_NEXT)) {
 							if (exec_county && (jiffies - firsty_time < SWEEP_TIMEOUT)) {
 								pr_info(LOGTAG"sweep down\n");
-						                sweep2wake_pwrtrigger();
+								if (gestures_switch) {
+									report_gesture(4);
+								} else {
+						                        sweep2wake_pwrtrigger();
+								}
 								exec_county = false;
 							}
 						}
@@ -269,7 +292,11 @@ static void detect_sweep2wake_h(int x, int y, bool st, bool wake)
 					if (x > (S2W_X_MAX - S2W_X_FINAL)) {
 						if (exec_countx && (jiffies - firstx_time < SWEEP_TIMEOUT)) {
 							pr_info(LOGTAG"sweep right\n");
-						        sweep2wake_pwrtrigger();
+							if (gestures_switch && wake) {
+								report_gesture(1);
+							} else {
+						        	sweep2wake_pwrtrigger();
+							}
 							exec_countx = false;
 						}
 					}
@@ -294,7 +321,11 @@ static void detect_sweep2wake_h(int x, int y, bool st, bool wake)
 					if (x < S2W_X_FINAL) {
 						if (exec_countx) {
 							pr_info(LOGTAG"sweep left\n");
-						        sweep2wake_pwrtrigger();
+							if (gestures_switch && wake) {
+								report_gesture(2);
+							} else {
+						        	sweep2wake_pwrtrigger();
+							}
 							exec_countx = false;
 						}
 					}
@@ -466,7 +497,7 @@ static ssize_t s2w_sweep2wake_dump(struct device *dev,
 		s2w_switch = 15;
 
 	if (scr_suspended && !dt2w_switch && !s2w_switch) {
-		sweep2wake_pwrtrigger();
+		wake_pwrtrigger();
 	}
 
 	return count;
@@ -599,6 +630,17 @@ static int __init sweep2wake_init(void)
 		goto err_alloc_dev;
 	}
 
+	gesture_dev->name = "wake_gesture";
+	gesture_dev->phys = "wake_gesture/input0";
+	input_set_capability(gesture_dev, EV_REL, WAKE_GESTURE);
+
+	rc = input_register_device(gesture_dev);
+	if (rc) {
+		pr_err("%s: input_register_device err=%d\n", __func__, rc);
+		goto err_input_dev;
+	}
+	gestures_setdev(gesture_dev);
+
 #ifndef CONFIG_HAS_EARLYSUSPEND
 	s2w_lcd_notif.notifier_call = lcd_notifier_callback;
 	if (lcd_register_client(&s2w_lcd_notif) != 0) {
@@ -660,4 +702,3 @@ static void __exit sweep2wake_exit(void)
 
 module_init(sweep2wake_init);
 module_exit(sweep2wake_exit);
-
