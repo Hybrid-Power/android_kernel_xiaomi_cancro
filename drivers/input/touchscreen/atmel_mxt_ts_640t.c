@@ -1377,6 +1377,9 @@ static void mxt_proc_t15_messages(struct mxt_data *data, u8 *msg)
 	unsigned long keystates = le32_to_cpu(msg[2]);
 	int index = data->current_index;
 	if (data->screen_off) {
+		return;
+	}
+
 	if(data->keys_off) {
 		return;
 	}
