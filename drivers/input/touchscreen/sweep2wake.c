@@ -56,7 +56,7 @@ MODULE_LICENSE("GPLv2");
 
 /* Tuneables */
 #define S2W_DEBUG		0
-#define S2W_DEFAULT		0
+#define S2W_DEFAULT		1
 #define S2W_PWRKEY_DUR          60
 
 #ifdef CONFIG_ARCH_MSM8974
@@ -85,7 +85,7 @@ MODULE_LICENSE("GPLv2");
 #define SWEEP_LEFT		0x02
 #define SWEEP_UP		0x04
 #define SWEEP_DOWN		0x08
-#define VIB_STRENGTH		20
+#define VIB_STRENGTH		75
 
 int gestures_switch = S2W_DEFAULT;
 static struct input_dev *gesture_dev;
@@ -547,7 +547,7 @@ static ssize_t vib_strength_dump(struct device *dev,
 {
 	sscanf(buf, "%d ",&vib_strength);
 	if (vib_strength < 0 || vib_strength > 90)
-		vib_strength = 20;
+		vib_strength = 75;
 
 	return count;
 }
