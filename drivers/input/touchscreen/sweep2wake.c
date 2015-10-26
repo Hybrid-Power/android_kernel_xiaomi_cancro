@@ -81,11 +81,11 @@ MODULE_LICENSE("GPLv2");
 #define SWEEP_TIMEOUT		30
 #define TRIGGER_TIMEOUT		50
 #define WAKE_GESTURE		0x0b
-#define SWEEP_RIGHT		0x01
+#define SWEEP_RIGHT		0x08
 #define SWEEP_LEFT		0x02
 #define SWEEP_UP		0x04
-#define SWEEP_DOWN		0x08
-#define VIB_STRENGTH		75
+#define SWEEP_DOWN		0x01
+#define VIB_STRENGTH		20
 
 int gestures_switch = S2W_DEFAULT;
 static struct input_dev *gesture_dev;
@@ -547,7 +547,7 @@ static ssize_t vib_strength_dump(struct device *dev,
 {
 	sscanf(buf, "%d ",&vib_strength);
 	if (vib_strength < 0 || vib_strength > 90)
-		vib_strength = 75;
+		vib_strength = 20;
 
 	return count;
 }

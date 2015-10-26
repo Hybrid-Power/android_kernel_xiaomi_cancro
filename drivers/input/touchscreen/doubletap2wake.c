@@ -69,8 +69,8 @@ MODULE_LICENSE("GPLv2");
 #define DT2W_DEFAULT			0
 
 #define DT2W_PWRKEY_DUR			60
-#define DT2W_FEATHER			150
-#define DT2W_TIME				50
+#define DT2W_FEATHER			200
+#define DT2W_TIME				200
 
 #if defined(CONFIG_ARCH_MSM8974)
 #define DT2W_X_MAX				1080
@@ -184,11 +184,11 @@ static void detect_doubletap2wake(int x, int y, bool st)
         pr_info(LOGTAG"x,y(%4d,%4d) single:%s\n",
                 x, y, (single_touch) ? "true" : "false");
 #endif
-	if (x < 200 || x > 880) {
+	if (x < 100 || x > 980) {
 		return;
 	}
 
-	if (y < 960 || y > 480) {
+	if (y < 960) {
 		return;
 	}
 
@@ -533,4 +533,3 @@ static void __exit doubletap2wake_exit(void)
 
 module_init(doubletap2wake_init);
 module_exit(doubletap2wake_exit);
-
