@@ -50,7 +50,7 @@ int graphics_boost = 6;
 #endif
 
 struct clk_pair {
-	const char *name;0
+	const char *name;
 	uint map;
 };
 
@@ -191,9 +191,6 @@ void kgsl_pwrctrl_pwrlevel_change(struct kgsl_device *device,
 #ifdef CONFIG_CPU_FREQ_GOV_SLIM
         graphics_boost = pwr->active_pwrlevel;
 #endif
-}
-EXPORT_SYMBOL(kgsl_pwrctrl_pwrlevel_change);
-
 		/*
 		 * On some platforms, instability is caused on
 		 * changing clock freq when the core is busy.
