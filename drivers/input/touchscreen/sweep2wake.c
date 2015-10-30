@@ -56,7 +56,7 @@ MODULE_LICENSE("GPLv2");
 
 /* Tuneables */
 #define S2W_DEBUG		0
-#define S2W_DEFAULT		1
+#define S2W_DEFAULT		0
 #define S2W_PWRKEY_DUR          60
 
 #ifdef CONFIG_ARCH_MSM8974
@@ -84,7 +84,7 @@ MODULE_LICENSE("GPLv2");
 #define SWEEP_RIGHT		0x08
 #define SWEEP_LEFT		0x02
 #define SWEEP_UP		0x04
-#define SWEEP_DOWN		0x01
+#define SWEEP_DOWN		0x08
 #define VIB_STRENGTH		20
 
 int gestures_switch = S2W_DEFAULT;
