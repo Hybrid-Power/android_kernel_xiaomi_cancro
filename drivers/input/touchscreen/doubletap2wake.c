@@ -66,7 +66,7 @@ MODULE_LICENSE("GPLv2");
 
 /* Tuneables */
 #define DT2W_DEBUG				0
-#define DT2W_DEFAULT			0
+#define DT2W_DEFAULT			1
 
 #define DT2W_PWRKEY_DUR			60
 #define DT2W_FEATHER			200
@@ -184,11 +184,11 @@ static void detect_doubletap2wake(int x, int y, bool st)
         pr_info(LOGTAG"x,y(%4d,%4d) single:%s\n",
                 x, y, (single_touch) ? "true" : "false");
 #endif
-	if (x < 100 || x > 980) {
+	if (x < 200 || x > 880) {
 		return;
 	}
 
-	if (y < 960) {
+	if (y < 990 || y > 930) {
 		return;
 	}
 
