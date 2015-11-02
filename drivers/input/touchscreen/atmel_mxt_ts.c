@@ -5199,14 +5199,6 @@ static int mxt_input_disable(struct input_dev *in_dev)
 	return error;
 }
 
-
-static void configure_sleep(struct mxt_data *data)
-{
-	data->input_dev->enable = mxt_input_enable;
-	data->input_dev->disable = mxt_input_disable;
-	data->input_dev->enabled = true;
-}
-
 static void mxt_power_suspend (struct power_suspend *h) {
 
 	mxt_input_disable(shared_data->input_dev);
