@@ -3046,7 +3046,6 @@ config WALL_CLK_SYSFS
 config BRICKED_HOTPLUG
 	bool "Enable kernel based mpdecision"
 	depends on MSM_RUN_QUEUE_STATS
-	default y
 	help
 	  This enables kernel based multi core control.
 	  (up/down hotplug based on load)
@@ -3099,7 +3098,6 @@ config MSM_LIMITER
 config MSM_HOTPLUG
 	bool "MSM hotplug driver"
 	depends on HOTPLUG_CPU
-	default y
 	help
 	  The MSM hotplug driver controls on-/offlining of additional cores based
 	  on current cpu load.
@@ -3111,12 +3109,6 @@ config INTELLI_HOTPLUG
 	help
 	  An intelligent cpu hotplug driver for
 	  Low Latency Frequency Transition capable processors.
-
-config ALUCARD_HOTPLUG
-	bool "Enable alucard-hotplug cpu hotplug driver"
-	default y
-	help
-	  Alucard-hotplug cpu hotplug driver for ARM SOCs
 
 endif
 
