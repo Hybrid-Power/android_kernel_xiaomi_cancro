@@ -32,11 +32,7 @@
 #include <linux/string.h>
 #include <linux/of_gpio.h>
 #include <asm/bootinfo.h>
-#include <mach/gpiomux.h>
-#ifdef CONFIG_FB
-#include <linux/notifier.h>
-#include <linux/fb.h>
-#endif
+
 #include <linux/input/doubletap2wake.h>
 #include <linux/input/sweep2wake.h>
 #if defined(CONFIG_POWERSUSPEND)
@@ -653,9 +649,6 @@ struct mxt_data {
 	u8 T100_reportid_min;
 	u8 T100_reportid_max;
 	u8 T102_reportid;
-#ifdef CONFIG_FB
-	struct notifier_block fb_notif;
-#endif
 };
 
 static struct mxt_suspend mxt_save[] = {
@@ -5213,49 +5206,6 @@ static void mxt_power_resume (struct power_suspend *h) {
 	return;
 }
 
-#ifdef CONFIG_FB
-static int fb_notifier_cb(struct notifier_block *self,
-			unsigned long event, void *data)
-{
-	struct fb_event *evdata = data;
-	int *blank;
-	struct mxt_data *mxt_data =
-		container_of(self, struct mxt_data, fb_notif);
-
-	if (evdata && evdata->data && event == FB_EVENT_BLANK && mxt_data) {
-		blank = evdata->data;
-		if (*blank == FB_BLANK_UNBLANK) {
-			dev_info(&mxt_data->client->dev, "##### UNBLANK SCREEN #####\n");
-			mxt_input_enable(mxt_data->input_dev);
-		} else if (*blank == FB_BLANK_POWERDOWN) {
-			dev_info(&mxt_data->client->dev, "##### BLANK SCREEN #####\n");
-			mxt_input_disable(mxt_data->input_dev);
-		}
-	}
-
-	return 0;
-}
-
-static void configure_sleep(struct mxt_data *data)
-{
-	int ret;
-
-	data->fb_notif.notifier_call = fb_notifier_cb;
-	ret = fb_register_client(&data->fb_notif);
-	if (ret) {
-		dev_err(&data->client->dev,
-			"Unable to register fb_notifier, err: %d\n", ret);
-	}
-}
-#else
-static void configure_sleep(struct mxt_data *data)
-{
-	data->input_dev->enable = mxt_input_enable;
-	data->input_dev->disable = mxt_input_disable;
-	data->input_dev->enabled = true;
-}
-#endif
-
 static int mxt_initialize_input_device(struct mxt_data *data)
 {
 	struct device *dev = &data->client->dev;
@@ -5282,9 +5232,9 @@ static int mxt_initialize_input_device(struct mxt_data *data)
 	input_dev->open = mxt_input_open;
 	input_dev->close = mxt_input_close;
 	input_dev->event = mxt_input_event;
-//         input_dev->enable = mxt_input_enable;
-// 	input_dev->disable = mxt_input_disable;
-// 	input_dev->enabled = true;
+        input_dev->enable = mxt_input_enable;
+ 	input_dev->disable = mxt_input_disable;
+ 	input_dev->enabled = true;
 
 	__set_bit(EV_ABS, input_dev->evbit);
 	__set_bit(EV_KEY, input_dev->evbit);
@@ -5341,8 +5291,6 @@ static int mxt_initialize_input_device(struct mxt_data *data)
 	}
 
 	data->input_dev = input_dev;
-
-  	configure_sleep(data);
 
 	return 0;
 }
