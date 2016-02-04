@@ -3053,7 +3053,7 @@ config WALL_CLK_SYSFS
 
 config BRICKED_HOTPLUG
 	bool "Enable kernel based mpdecision"
-	default y
+	default n
 	depends on MSM_RUN_QUEUE_STATS
 	help
 	  This enables kernel based multi core control.
