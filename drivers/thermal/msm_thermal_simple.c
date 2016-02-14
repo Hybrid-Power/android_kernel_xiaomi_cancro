@@ -171,7 +171,7 @@ static int cpu_do_throttle(struct notifier_block *nb, unsigned long val, void *d
 	}
 
 	if (policy->min > policy->max)
-		policy->min = policy->max;
+		policy->min = policy->cpuinfo.min_freq;
 
 	return NOTIFY_OK;
 }
