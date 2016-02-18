@@ -975,6 +975,27 @@ static int mdss_fb_blank(int blank_mode, struct fb_info *info)
 	return mdss_fb_blank_sub(blank_mode, info, mfd->op_enable);
 }
 
+/* Set VM page protection */
+static inline void __mdss_fb_set_page_protection(struct vm_area_struct *vma,
+		struct msm_fb_data_type *mfd)
+{
+	if (mfd->mdp_fb_page_protection == MDP_FB_PAGE_PROTECTION_WRITECOMBINE)
+		vma->vm_page_prot = pgprot_writecombine(vma->vm_page_prot);
+	else if (mfd->mdp_fb_page_protection ==
+			MDP_FB_PAGE_PROTECTION_WRITETHROUGHCACHE)
+		vma->vm_page_prot = pgprot_writethroughcache(vma->vm_page_prot);
+	else if (mfd->mdp_fb_page_protection ==
+			MDP_FB_PAGE_PROTECTION_WRITEBACKCACHE)
+		vma->vm_page_prot = pgprot_writebackcache(vma->vm_page_prot);
+	else if (mfd->mdp_fb_page_protection ==
+			MDP_FB_PAGE_PROTECTION_WRITEBACKWACACHE)
+		vma->vm_page_prot = pgprot_writebackwacache(vma->vm_page_prot);
+	else
+		vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
+
+
+}
+
 static inline int mdss_fb_create_ion_client(struct msm_fb_data_type *mfd)
 {
 	mfd->fb_ion_client  = msm_ion_client_create(-1 , "mdss_fb_iclient");
@@ -1054,7 +1075,6 @@ int mdss_fb_alloc_fb_ion_memory(struct msm_fb_data_type *mfd, size_t fb_size)
 		}
 	} else {
 		pr_err("No IOMMU Domain");
-		rc = -EINVAL;
 		goto fb_mmap_failed;
 
 	}
@@ -1158,10 +1178,7 @@ static int mdss_fb_fbmem_ion_mmap(struct fb_info *info,
 			}
 			len = min(len, remainder);
 
-			if (mfd->mdp_fb_page_protection ==
-					MDP_FB_PAGE_PROTECTION_WRITECOMBINE)
-				vma->vm_page_prot =
-					pgprot_writecombine(vma->vm_page_prot);
+			__mdss_fb_set_page_protection(vma, mfd);
 
 			pr_debug("vma=%p, addr=%x len=%ld",
 					vma, (unsigned int)addr, len);
@@ -1204,7 +1221,6 @@ static int mdss_fb_physical_mmap(struct fb_info *info,
 	unsigned long start = info->fix.smem_start;
 	u32 len = PAGE_ALIGN((start & ~PAGE_MASK) + info->fix.smem_len);
 	unsigned long off = vma->vm_pgoff << PAGE_SHIFT;
-	struct msm_fb_data_type *mfd = (struct msm_fb_data_type *)info->par;
 
 	if (!start) {
 		pr_warn("No framebuffer memory is allocated\n");
@@ -1214,8 +1230,8 @@ static int mdss_fb_physical_mmap(struct fb_info *info,
 	/* Set VM flags. */
 	start &= PAGE_MASK;
 	if ((vma->vm_end <= vma->vm_start) ||
-			(off >= len) ||
-			((vma->vm_end - vma->vm_start) > (len - off)))
+	    (off >= len) ||
+	    ((vma->vm_end - vma->vm_start) > (len - off)))
 		return -EINVAL;
 	off += start;
 	if (off < start)
@@ -1224,13 +1240,10 @@ static int mdss_fb_physical_mmap(struct fb_info *info,
 	/* This is an IO map - tell maydump to skip this VMA */
 	vma->vm_flags |= VM_IO;
 
-	if (mfd->mdp_fb_page_protection == MDP_FB_PAGE_PROTECTION_WRITECOMBINE)
-		vma->vm_page_prot = pgprot_writecombine(vma->vm_page_prot);
-
 	/* Remap the frame buffer I/O range */
 	if (io_remap_pfn_range(vma, vma->vm_start, off >> PAGE_SHIFT,
-				vma->vm_end - vma->vm_start,
-				vma->vm_page_prot))
+			       vma->vm_end - vma->vm_start,
+			       vma->vm_page_prot))
 		return -EAGAIN;
 
 	return 0;
@@ -1799,9 +1812,6 @@ void mdss_fb_wait_for_fence(struct msm_sync_pt_data *sync_pt_data)
 	struct sync_fence *fences[MDP_MAX_FENCE_FD];
 	int fence_cnt;
 	int i, ret = 0;
-	unsigned long max_wait = msecs_to_jiffies(WAIT_MAX_FENCE_TIMEOUT);
-	unsigned long timeout = jiffies + max_wait;
-	long wait_ms, wait_jf;
 
 	pr_debug("%s: wait for fences\n", sync_pt_data->fence_name);
 
@@ -1819,41 +1829,15 @@ void mdss_fb_wait_for_fence(struct msm_sync_pt_data *sync_pt_data)
 
 	/* buf sync */
 	for (i = 0; i < fence_cnt && !ret; i++) {
-		wait_jf = timeout - jiffies;
-		wait_ms = jiffies_to_msecs(wait_jf);
-
-		/*
-		 * In this loop, if one of the previous fence took long
-		 * time, give a chance for the next fence to check if
-		 * fence is already signalled. If not signalled it breaks
-		 * in the final wait timeout.
-		 */
-		if (wait_jf < 0)
-			wait_ms = WAIT_MIN_FENCE_TIMEOUT;
-		else
-			wait_ms = min_t(long, WAIT_FENCE_FIRST_TIMEOUT,
-					wait_ms);
-
-		ret = sync_fence_wait(fences[i], wait_ms);
-
+		ret = sync_fence_wait(fences[i],
+				WAIT_FENCE_FIRST_TIMEOUT);
 		if (ret == -ETIME) {
-			wait_jf = timeout - jiffies;
-			wait_ms = jiffies_to_msecs(wait_jf);
-			if (wait_jf < 0)
-				break;
-			else
-				wait_ms = min_t(long, WAIT_FENCE_FINAL_TIMEOUT,
-						wait_ms);
-
 			pr_warn("%s: sync_fence_wait timed out! ",
 					sync_pt_data->fence_name);
-			pr_cont("Waiting %ld.%ld more seconds\n",
-				(wait_ms/MSEC_PER_SEC), (wait_ms%MSEC_PER_SEC));
-
-			ret = sync_fence_wait(fences[i], wait_ms);
-
-			if (ret == -ETIME)
-				break;
+			pr_cont("Waiting %ld more seconds\n",
+					WAIT_FENCE_FINAL_TIMEOUT/MSEC_PER_SEC);
+			ret = sync_fence_wait(fences[i],
+					WAIT_FENCE_FINAL_TIMEOUT);
 		}
 		sync_fence_put(fences[i]);
 	}
@@ -2000,7 +1984,7 @@ static int mdss_fb_wait_for_kickoff(struct msm_fb_data_type *mfd)
 	ret = wait_event_timeout(mfd->kickoff_wait_q,
 			(!atomic_read(&mfd->kickoff_pending) ||
 			 mfd->shutdown_pending),
-			msecs_to_jiffies(WAIT_DISP_OP_TIMEOUT));
+			msecs_to_jiffies(WAIT_DISP_OP_TIMEOUT / 2));
 	if (!ret) {
 		pr_err("wait for kickoff timeout %d pending=%d\n",
 				ret, atomic_read(&mfd->kickoff_pending));
@@ -2664,8 +2648,7 @@ static int __ioctl_wait_idle(struct msm_fb_data_type *mfd, u32 cmd)
 		(cmd != MSMFB_OVERLAY_VSYNC_CTRL) &&
 		(cmd != MSMFB_ASYNC_BLIT) &&
 		(cmd != MSMFB_BLIT) &&
-		(cmd != MSMFB_NOTIFY_UPDATE) &&
-		(cmd != MSMFB_OVERLAY_PREPARE)) {
+		(cmd != MSMFB_NOTIFY_UPDATE)) {
 		ret = mdss_fb_pan_idle(mfd);
 	}
 
