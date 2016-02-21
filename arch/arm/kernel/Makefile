@@ -86,5 +86,3 @@ obj-$(CONFIG_EARLY_PRINTK)	+= early_printk.o
 
 obj-$(CONFIG_BOOT_INFO) 	+= bootinfo.o
 extra-y := $(head-y) init_task.o vmlinux.lds
-
-obj-y += mako_hotplug.o
