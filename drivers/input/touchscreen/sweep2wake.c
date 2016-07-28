@@ -85,12 +85,12 @@ MODULE_LICENSE("GPLv2");
 #define SWEEP_LEFT		0x04
 #define SWEEP_UP		0x02
 #define SWEEP_DOWN		0x01
-#define VIB_STRENGTH		20
+#define VIBE_STRENGTH		20
 
 int gestures_switch = S2W_DEFAULT;
 static struct input_dev *gesture_dev;
 extern void gestures_setdev(struct input_dev * input_device);
-int vib_strength = VIB_STRENGTH;
+int vibe_strength = VIBE_STRENGTH;
 
 /* Resources */
 int s2w_switch = S2W_DEFAULT;
@@ -534,26 +534,26 @@ static ssize_t wake_gestures_dump(struct device *dev,
 static DEVICE_ATTR(wake_gestures, (S_IWUSR|S_IRUGO),
 	wake_gestures_show, wake_gestures_dump);
 
-static ssize_t vib_strength_show(struct device *dev,
+static ssize_t vibe_strength_show(struct device *dev,
 		 struct device_attribute *attr, char *buf)
 {
 	size_t count = 0;
-	count += sprintf(buf, "%d\n", vib_strength);
+	count += sprintf(buf, "%d\n", vibe_strength);
 	return count;
 }
 
-static ssize_t vib_strength_dump(struct device *dev,
+static ssize_t vibe_strength_dump(struct device *dev,
 		 struct device_attribute *attr, const char *buf, size_t count)
 {
-	sscanf(buf, "%d ",&vib_strength);
-	if (vib_strength < 0 || vib_strength > 90)
-		vib_strength = 20;
+	sscanf(buf, "%d ",&vibe_strength);
+	if (vibe_strength < 0 || vibe_strength > 90)
+		vibe_strength = 20;
 
 	return count;
 }
 
-static DEVICE_ATTR(vib_strength, (S_IWUSR|S_IRUGO),
-	vib_strength_show, vib_strength_dump);
+static DEVICE_ATTR(vibe_strength, (S_IWUSR|S_IRUGO),
+	vibe_strength_show, vibe_strength_dump);
 
 /*
  * INIT / EXIT stuff below here
@@ -630,9 +630,9 @@ static int __init sweep2wake_init(void)
 	if (rc) {
 		pr_warn("%s: sysfs_create_file failed for wake_gestures\n", __func__);
 	}
-	rc = sysfs_create_file(android_touch_kobj, &dev_attr_vib_strength.attr);
+	rc = sysfs_create_file(android_touch_kobj, &dev_attr_vibe_strength.attr);
 	if (rc) {
-		pr_warn("%s: sysfs_create_file failed for vib_strength\n", __func__);
+		pr_warn("%s: sysfs_create_file failed for vibe_strength\n", __func__);
 	}
 
 err_input_dev:
