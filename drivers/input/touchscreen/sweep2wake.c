@@ -78,8 +78,8 @@ MODULE_LICENSE("GPLv2");
 #endif
 
 /* Wake Gestures */
-#define SWEEP_TIMEOUT		30
-#define TRIGGER_TIMEOUT		50
+#define SWEEP_TIMEOUT		50
+#define TRIGGER_TIMEOUT		80
 #define WAKE_GESTURE		0x0b
 #define SWEEP_RIGHT		0x08
 #define SWEEP_LEFT		0x04
