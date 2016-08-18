@@ -1319,14 +1319,6 @@ qpnp_chg_vbatdet_lo_irq_handler(int irq, void *_chip)
 	if (!chip->charging_disabled && (chg_sts & FAST_CHG_ON_IRQ)) {
 		schedule_delayed_work(&chip->eoc_work,
 			msecs_to_jiffies(EOC_CHECK_PERIOD_MS));
-		if (get_hw_version_major() == 4 ||
-				get_hw_version_major() == 5) {
-			getnstimeofday(&ts);
-			ts.tv_sec += THERMAL_MONITOR_INTVAL_SEC;
-			alarm_start_range(&chip->thermal_monitor_alarm,
-				timespec_to_ktime(ts), timespec_to_ktime(ts));
-			last_thermal_level = chip->thermal_levels - 1;
-		}
 		pm_stay_awake(chip->dev);
 	}
 	qpnp_chg_disable_irq(&chip->chg_vbatdet_lo);
@@ -1725,31 +1717,8 @@ qpnp_chg_usb_usbin_valid_irq_handler(int irq, void *_chip)
 			schedule_delayed_work(&chip->eoc_work,
 				msecs_to_jiffies(EOC_CHECK_PERIOD_MS));
 			schedule_work(&chip->soc_check_work);
-
-			if (get_hw_version_major() == 4 ||
-					get_hw_version_major() == 5) {
-				getnstimeofday(&ts);
-				ts.tv_sec += THERMAL_MONITOR_INTVAL_SEC;
-				alarm_start_range(&chip->thermal_monitor_alarm,
-					timespec_to_ktime(ts),
-					timespec_to_ktime(ts));
-				last_thermal_level = chip->thermal_levels - 1;
-			}
-
-			__cancel_delayed_work(&chip->invalid_charger_work);
-			/* Charger only mode */
-			if (get_powerup_reason() &
-				(1 << PU_REASON_EVENT_USB_CHG))
-				schedule_delayed_work(
-					&chip->invalid_charger_work,
-					msecs_to_jiffies(5000));
-			else
-				schedule_delayed_work(
-					&chip->invalid_charger_work,
-					msecs_to_jiffies(2000));
 		}
 
-		wake_lock_timeout(&chip->wl, HZ * 1.5);
 		power_supply_set_present(chip->usb_psy, chip->usb_present);
 		schedule_work(&chip->batfet_lcl_work);
 	}
@@ -2040,17 +2009,6 @@ qpnp_chg_chgr_chg_fastchg_irq_handler(int irq, void *_chip)
 			if (!chip->charging_disabled) {
 				schedule_delayed_work(&chip->eoc_work,
 					msecs_to_jiffies(EOC_CHECK_PERIOD_MS));
-				if (get_hw_version_major() == 4 ||
-						get_hw_version_major() == 5) {
-					getnstimeofday(&ts);
-					ts.tv_sec += THERMAL_MONITOR_INTVAL_SEC;
-					alarm_start_range(
-						&chip->thermal_monitor_alarm,
-						timespec_to_ktime(ts),
-						timespec_to_ktime(ts));
-					last_thermal_level = \
-						chip->thermal_levels - 1;
-				}
 				pm_stay_awake(chip->dev);
 			}
 			if (chip->parallel_ovp_mode)
@@ -3621,64 +3579,6 @@ qpnp_chg_adjust_vddmax(struct qpnp_chg_chip *chip, int vbat_mv)
 			-MAX_DELTA_VDD_MAX_MV, MAX_DELTA_VDD_MAX_MV);
 	pr_debug("using delta_vddmax_mv = %d\n", chip->delta_vddmax_mv);
 	qpnp_chg_set_appropriate_vddmax(chip);
-}
-
-static void qpnp_chg_thermal_monitor_work(struct work_struct *work)
-{
-	struct qpnp_chg_chip *chip = container_of(work,
-			struct qpnp_chg_chip, thermal_monitor_work);
-	int usb_present = 0, batt_present = 0;
-	int batt_temp, thermal_level;
-	struct timespec ts;
-
-	usb_present = qpnp_chg_is_usb_chg_plugged_in(chip);
-	batt_present = get_prop_batt_present(chip);
-
-	if (!usb_present || !batt_present || chip->chg_done) {
-		pr_info("usb %d batt %d chg_done %d, exit monitor\n",
-			usb_present, batt_present, chip->chg_done);
-		last_thermal_level = chip->thermal_levels - 1;
-		return;
-	}
-
-	batt_temp = get_prop_batt_temp(chip);
-	if (batt_temp <= 360)
-		thermal_level = 0;
-	else if (batt_temp <= 370)
-		thermal_level = 1;
-	else if (batt_temp <= 380)
-		thermal_level = 2;
-	else if (batt_temp <= 390)
-		thermal_level = 3;
-	else if (batt_temp <= 400)
-		thermal_level = 4;
-	else if (batt_temp <= 410)
-		thermal_level = 5;
-	else
-		thermal_level = 6;
-
-	pr_info("temp %d lvl %d %d\n",
-		batt_temp, last_thermal_level, thermal_level);
-
-	if (last_thermal_level != thermal_level)
-		qpnp_batt_system_temp_level_set(chip, thermal_level);
-
-	getnstimeofday(&ts);
-	ts.tv_sec += THERMAL_MONITOR_INTVAL_SEC;
-	alarm_start_range(&chip->thermal_monitor_alarm,
-		timespec_to_ktime(ts), timespec_to_ktime(ts));
-
-	last_thermal_level = thermal_level;
-
-	return;
-}
-
-static void qpnp_chg_thermal_monitor_callback(struct alarm *alarm)
-{
-	struct qpnp_chg_chip *chip = container_of(alarm, struct qpnp_chg_chip,
-				thermal_monitor_alarm);
-
-	schedule_work(&chip->thermal_monitor_work);
 }
 
 #define CONSECUTIVE_COUNT	3
@@ -6499,11 +6399,6 @@ qpnp_charger_probe(struct spmi_device *spmi)
 			qpnp_chg_batfet_lcl_work);
 	INIT_WORK(&chip->insertion_ocv_work,
 			qpnp_chg_insertion_ocv_work);
-
-	alarm_init(&chip->thermal_monitor_alarm, ANDROID_ALARM_RTC_WAKEUP,
-		qpnp_chg_thermal_monitor_callback);
-	INIT_WORK(&chip->thermal_monitor_work,
-		qpnp_chg_thermal_monitor_work);
 
 	/* Get all device tree properties */
 	rc = qpnp_charger_read_dt_props(chip);
